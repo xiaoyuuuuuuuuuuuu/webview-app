@@ -63,6 +63,17 @@ const config: CapacitorConfig = {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
+    // Capacitor 8 自带的 SystemBars 插件(@capacitor/android 核心,自动注册)负责
+    // Android 的 edge-to-edge:它在 decorView 上挂 OnApplyWindowInsetsListener,
+    // 并且永远往页面注入 --safe-area-inset-* 四个 CSS 变量。
+    //
+    // 它有两种模式,由页面 viewport 里有没有 viewport-fit=cover 决定:
+    //   没有  → 原生把 WebView 让开系统栏,注入的变量是 0(网站什么都不用做)
+    //   有    → 把 inset 透传给页面,注入真实值,网站 CSS 必须自己让开
+    // 下面这个 hint 只是提前告诉它结果,避免首屏抖一下。
+    SystemBars: {
+      initialViewportFitValueHint: appConfig.safeArea === 'cover' ? 'cover' : '',
+    },
   },
 };
 

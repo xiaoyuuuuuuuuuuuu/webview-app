@@ -14,7 +14,8 @@
  *   4. 断网/恢复的提示条
  *   5. target="_blank" 的链接(安卓 WebView 默认点了没反应)
  *   6. iOS 上的文件下载(安卓走原生 DownloadManager,不经过这里)
- *   7. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
+ *   7. safe area:统一成 --app-safe-* 四个 CSS 变量,给网站 CSS 用
+ *   8. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
  */
 (function () {
   'use strict';
@@ -29,6 +30,12 @@
     onlineText: '网络已恢复',
     externalInAppBrowser: true, // 外链用应用内浏览器(false = 丢给系统浏览器)
     hideSplashDelay: 0,        // 收起启动页前多等几毫秒,给网站渲染时间
+    // safe area。要和 app.config.json 的 safeArea 保持一致:
+    //   'native' —— 原生把 WebView 让开系统栏,网站什么都不用做(默认)
+    //   'cover'  —— 内容铺到屏幕边缘,网站 CSS 必须自己用 --app-safe-* 让开
+    // 最好是直接在网站的 <meta name="viewport"> 里写上 viewport-fit=cover,
+    // 这里改只是兜底(脚本是 defer 的,改完会多一次重排)。
+    safeArea: 'native',
     // iOS 的下载链接交给系统浏览器(安卓有原生 DownloadManager,不走这里)
     interceptDownloadsOnIOS: true,
     downloadExtensions: /\.(pdf|xlsx?|docx?|csv|zip|rar|7z|pptx?|apk|ipa|dmg|mp4|mp3)$/i,
@@ -61,18 +68,38 @@
   var style = document.createElement('style');
   style.textContent = [
     '.in-app { -webkit-tap-highlight-color: transparent; }',
-    '#app-shell-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));',
+    '#app-shell-toast{position:fixed;left:50%;bottom:calc(24px + var(--app-safe-bottom));',
     'transform:translate(-50%,16px);z-index:2147483000;max-width:80vw;',
     'padding:10px 18px;border-radius:999px;background:rgba(24,24,27,.92);color:#fff;',
     'font:14px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;',
     'text-align:center;opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;}',
     '#app-shell-toast.show{opacity:1;transform:translate(-50%,0);}',
-    '#app-shell-ptr{position:fixed;top:0;left:50%;z-index:2147483000;',
+    '#app-shell-ptr{position:fixed;top:var(--app-safe-top);left:50%;z-index:2147483000;',
     'width:30px;height:30px;margin-left:-15px;pointer-events:none;opacity:0;',
     'transition:opacity .15s;display:flex;align-items:center;justify-content:center;}',
     '#app-shell-ptr svg{width:22px;height:22px;}',
     '#app-shell-ptr.spin svg{animation:app-shell-spin .7s linear infinite;}',
     '@keyframes app-shell-spin{to{transform:rotate(360deg)}}',
+    // safe area。两个来源合成一个变量:
+    //   --safe-area-inset-* 是 Capacitor 8 的 SystemBars 插件在 Android 上注入的,
+    //     值的含义就是「页面还需要自己让开多少」—— 原生已经让开时它是 0。
+    //   env(safe-area-inset-*) 是 iOS(以及 Android 透传模式)那条路,
+    //     前提是 viewport 里有 viewport-fit=cover,否则恒为 0。
+    // 两边都没有就是 0,所以这几个变量在任何情况下都能直接用。
+    '.in-app{',
+    '--app-safe-top:var(--safe-area-inset-top,env(safe-area-inset-top,0px));',
+    '--app-safe-right:var(--safe-area-inset-right,env(safe-area-inset-right,0px));',
+    '--app-safe-bottom:var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));',
+    '--app-safe-left:var(--safe-area-inset-left,env(safe-area-inset-left,0px));}',
+    // 给网站用的工具类。网站自己的选择器可能更具体,不生效就自己写 var(--app-safe-*)
+    '.in-app .app-safe-top{padding-top:var(--app-safe-top);}',
+    '.in-app .app-safe-bottom{padding-bottom:var(--app-safe-bottom);}',
+    '.in-app .app-safe-x{padding-left:var(--app-safe-left);padding-right:var(--app-safe-right);}',
+    '.in-app .app-safe-inset{padding:var(--app-safe-top) var(--app-safe-right) ',
+    'var(--app-safe-bottom) var(--app-safe-left);}',
+    // 固定在顶部/底部的元素:把 inset 加到自身 padding 上,别改 top/bottom
+    '.in-app .app-safe-fixed-top{top:0;padding-top:var(--app-safe-top);}',
+    '.in-app .app-safe-fixed-bottom{bottom:0;padding-bottom:var(--app-safe-bottom);}',
   ].join('');
   document.head.appendChild(style);
 
@@ -221,6 +248,49 @@
     window.addEventListener('online', online);
   })();
 
+  // ---------- 4.5 safe area ----------
+  (function () {
+    if (CONFIG.safeArea === 'cover') ensureViewportFitCover();
+
+    function ensureViewportFitCover() {
+      var metas = document.querySelectorAll('meta[name=viewport]');
+      // SystemBars 插件也是看最后一个 meta viewport,这里保持一致
+      var meta = metas.length ? metas[metas.length - 1] : null;
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', 'viewport');
+        meta.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
+        document.head.appendChild(meta);
+        return;
+      }
+      var content = meta.getAttribute('content') || '';
+      if (/viewport-fit\s*=\s*cover/i.test(content)) return;
+      content = content.replace(/\s*,?\s*viewport-fit\s*=\s*[a-z-]+/i, '').replace(/\s*,\s*$/, '');
+      meta.setAttribute('content', (content ? content + ', ' : '') + 'viewport-fit=cover');
+    }
+  })();
+
+  // 读出 safe area 的真实像素值。自定义属性用 getPropertyValue 读到的是没解析的
+  // var()/env() 字面量,所以拿一个隐藏元素把它们当 padding 算一遍再读。
+  function safeArea() {
+    var probe = document.createElement('div');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText =
+      'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;' +
+      'padding-top:var(--app-safe-top);padding-right:var(--app-safe-right);' +
+      'padding-bottom:var(--app-safe-bottom);padding-left:var(--app-safe-left);';
+    (document.body || root).appendChild(probe);
+    var cs = getComputedStyle(probe);
+    var out = {
+      top: parseFloat(cs.paddingTop) || 0,
+      right: parseFloat(cs.paddingRight) || 0,
+      bottom: parseFloat(cs.paddingBottom) || 0,
+      left: parseFloat(cs.paddingLeft) || 0,
+    };
+    probe.remove();
+    return out;
+  }
+
   // ---------- 5. 外链 ----------
   (function () {
     var baseHost = location.hostname.replace(/^www\./, '');
@@ -283,6 +353,7 @@
     platform: platform,
     toast: toast,
     call: call,
+    safeArea: safeArea,
     share: function (opts) { return call('Share', 'share', opts || {}); },
     exit: function () { return call('App', 'exitApp', {}); },
   };

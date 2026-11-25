@@ -33,6 +33,9 @@ if (/changeme/i.test(cfg.appId)) {
 if (!/^#[0-9a-f]{6}$/i.test(cfg.themeColor)) {
   errors.push(`themeColor 要是 #RRGGBB 格式: ${cfg.themeColor}`);
 }
+if (cfg.safeArea !== undefined && cfg.safeArea !== 'native' && cfg.safeArea !== 'cover') {
+  errors.push(`safeArea 只能是 "native" 或 "cover": ${cfg.safeArea}`);
+}
 if (errors.length) {
   console.error('\n✗ app.config.json 有问题:\n');
   errors.forEach((e) => console.error('  • ' + e));

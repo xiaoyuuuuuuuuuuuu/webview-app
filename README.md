@@ -89,6 +89,7 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 | 断网提示条 | 断网时没提示(但会显示离线页) |
 | `target="_blank"` 链接 | 安卓上点了没反应 |
 | iOS 文件下载 | iOS 上点下载链接没反应(安卓走原生,不受影响) |
+| safe area 变量 | 网站拿不到统一的 `--app-safe-*`,刘海屏要分平台写两套 |
 
 第二条是硬伤,所以这个文件实际上是必须的,不是可选增强。
 
@@ -138,6 +139,67 @@ bridge 清理,代价远大于收益。
 Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登录态文件能下),
 以及 `POST_NOTIFICATIONS` 权限是在用户第一次点下载时才请求的(Android 13+),
 拒绝了下载照样进行,只是通知栏不显示进度。
+
+### Safe area(刘海屏、灵动岛、底部手势条)
+
+**大部分活 Capacitor 已经干了,别重复实现。** Capacitor 8 的
+`@capacitor/android` 核心里有一个自动注册的 `SystemBars` 插件
+(`Bridge.java` 无条件 `registerPlugin`),它在 decorView 上挂
+`OnApplyWindowInsetsListener`,并且**总是**往页面注入
+`--safe-area-inset-top/right/bottom/left` 四个 CSS 变量。iOS 那边则由
+`StatusBar` 的 `overlaysWebView: false` 把 WebView 的 frame 往下挪,
+加上 `ios.contentInset: 'always'` 处理滚动内容的 inset。
+
+所以**不要**照着「在 MainActivity 里自己处理 WindowInsets」去写 ——
+那会和 `SystemBars` 的 decorView padding 打架,把内容挤两次。
+
+#### 两种模式
+
+`app.config.json` 的 `safeArea` 选一个,并且让 `app-shell.js` 里
+`CONFIG.safeArea` 保持一致(一个在原生侧,一个在网站侧,脚本读不到前者):
+
+| | `"native"`(默认) | `"cover"` |
+|---|---|---|
+| 页面 viewport | 不加 `viewport-fit=cover` | 要有 `viewport-fit=cover` |
+| Android | 原生把 WebView 让开系统栏 | inset 透传给页面 |
+| 注入的 CSS 变量 | 全是 `0` | 真实值 |
+| iOS `env()` | 恒为 `0` | 真实值 |
+| 网站要改吗 | **不用改** | 必须自己让开,否则内容被挡 |
+| 代价 | 系统栏那条是纯色,不能让内容铺过去 | 要动网站 CSS |
+
+先用 `native`:现有网站不动一行 CSS 就不会被刘海挡住。等需要「内容铺到
+屏幕边缘」的效果,或者发现 iOS 上固定底栏压在手势条上时,再换 `cover`。
+
+#### 换成 cover 之后,网站侧怎么写
+
+`app-shell.js` 把两个来源合成了一组变量,**任何情况下都能直接用**
+(没有 inset 时就是 `0`):
+
+```css
+/* 固定在顶部/底部的元素:加 padding,不要改 top/bottom */
+.in-app .site-header { padding-top: var(--app-safe-top); }
+.in-app .bottom-nav  { padding-bottom: var(--app-safe-bottom); }
+/* 横屏时左右也有 inset */
+.in-app .full-bleed  { padding-left: var(--app-safe-left); padding-right: var(--app-safe-right); }
+```
+
+懒人可以直接加 class:`app-safe-top` `app-safe-bottom` `app-safe-x`
+`app-safe-inset` `app-safe-fixed-top` `app-safe-fixed-bottom`。
+网站自己的选择器更具体时工具类会不生效,那就写上面那种 `var(...)` 形式。
+
+调试用:`AppShell.safeArea()` 返回 `{top, right, bottom, left}` 的真实像素值
+(自定义属性用 `getPropertyValue` 读到的是没解析的字面量,所以这个函数
+内部拿一个隐藏元素当 padding 算了一遍)。真机上先用它确认 inset 到底是多少。
+
+**最常见的失败原因**:`env(safe-area-inset-*)` 全是 0 —— 因为 viewport 里
+没有 `viewport-fit=cover`。最好直接写在网站自己的 meta 里:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+```
+
+`app-shell.js` 在 `CONFIG.safeArea === 'cover'` 时也会兜底改这个 meta,但脚本是
+`defer` 的,改完会多一次重排,首屏可能抖一下。
 
 ## 三、怎么出安装包
 
