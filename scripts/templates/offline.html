@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{APP_NAME}}</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #18181b;
+    --muted: #71717a;
+    --accent: {{THEME_COLOR}};
+    --border: #e4e4e7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0c0c0e; --fg:#fafafa; --muted:#a1a1aa; --border:#27272a; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
+    text-align: center;
+  }
+  .wrap { max-width: 320px; }
+  .icon { width: 64px; height: 64px; margin: 0 auto 24px; color: var(--muted); }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p { color: var(--muted); font-size: 15px; margin: 0 0 28px; }
+  button {
+    width: 100%; padding: 13px 20px; border: 0; border-radius: 12px;
+    background: var(--accent); color: #fff; font-size: 16px; font-weight: 500;
+    font-family: inherit; cursor: pointer; transition: opacity .15s;
+  }
+  button:active { opacity: .7; }
+  button[disabled] { opacity: .5; cursor: default; }
+  .status { margin-top: 16px; font-size: 13px; color: var(--muted); min-height: 20px; }
+  .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #22c55e; margin-right: 6px; vertical-align: 1px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M1 1l22 22"/>
+      <path d="M16.72 11.06A10.94 10.94 0 0119 12.55"/>
+      <path d="M5 12.55a10.94 10.94 0 015.17-2.39"/>
+      <path d="M10.71 5.05A16 16 0 0122.58 9"/>
+      <path d="M1.42 9a15.91 15.91 0 014.7-2.88"/>
+      <path d="M8.53 16.11a6 6 0 016.95 0"/>
+      <line x1="12" y1="20" x2="12.01" y2="20"/>
+    </svg>
+    <h1>连不上网络</h1>
+    <p>请检查你的网络连接,然后重试。</p>
+    <button id="retry" type="button">重新加载</button>
+    <div class="status" id="status"></div>
+  </div>
+
+<script>
+(function () {
+  var SITE = "{{SITE_URL}}";
+  var btn = document.getElementById('retry');
+  var status = document.getElementById('status');
+  var tries = 0;
+
+  function go() {
+    btn.disabled = true;
+    btn.textContent = '正在连接…';
+    // 用 replace,避免在 WebView 历史里堆一堆离线页
+    window.location.replace(SITE);
+  }
+
+  btn.addEventListener('click', function () { tries = 0; go(); });
+
+  // 网络恢复时自动回到网站
+  window.addEventListener('online', function () {
+    status.innerHTML = '<span class="dot"></span>网络已恢复,正在重新加载…';
+    setTimeout(go, 400);
+  });
+
+  // 轮询兜底:有些安卓机不触发 online 事件
+  setInterval(function () {
+    if (navigator.onLine && tries < 1) { tries++; go(); }
+  }, 5000);
+})();
+</script>
+</body>
+</html>

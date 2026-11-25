@@ -1,0 +1,195 @@
+# 在 GitHub 的 macOS 机器上构建 iOS —— 你自己不用有 Mac。
+#
+# 怎么用: GitHub 仓库页 → Actions → "iOS" → Run workflow
+#
+#   • verify 这个 job 不需要任何配置,push 上来就会跑,只验证「能不能编译通过」。
+#     先把这个跑绿,再去折腾证书。
+#
+#   • testflight 这个 job 需要一个 App Store Connect API Key
+#     (比手动导证书和 provisioning profile 省事得多,签名让 Xcode 自己管)。
+#     去 App Store Connect → Users and Access → Integrations → App Store Connect API
+#     建一个 key,角色选 App Manager,下载 .p8 文件。然后加这几个 secret:
+#
+#       APPLE_API_KEY_ID        key 的 ID (10 位,像 2X9R4HXF34)
+#       APPLE_API_ISSUER_ID     同一页上的 Issuer ID (一长串 UUID)
+#       APPLE_API_KEY_P8        .p8 文件的全部内容(连 -----BEGIN 那几行一起贴)
+#       APPLE_TEAM_ID           开发者账号的 Team ID (10 位)
+#
+#     注意: .p8 只能下载一次,下完存好。
+name: iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: '版本号 (例如 1.0.3)'
+        required: false
+        default: '1.0.0'
+      upload:
+        description: '编译完上传到 TestFlight'
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 编译验证 (不需要证书)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 套用 app.config.json + 同步到原生项目
+        run: npm run sync:ios
+
+      - name: 选 Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: 看一眼环境
+        run: |
+          xcodebuild -version
+          xcodebuild -project ios/App/App.xcodeproj -list
+
+      - name: 编译 (跳过签名)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tail -40
+
+  testflight:
+    name: 打包并上传 TestFlight
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.upload
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查有没有配 API key
+        id: check
+        env:
+          K: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -z "$K" ]; then
+            echo "::error::还没配 APPLE_API_KEY_P8 等 secret,看这个文件开头的说明。"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 套用 app.config.json + 同步到原生项目
+        run: npm run sync:ios
+
+      - name: 放好 API key
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          # xcodebuild 用这份
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s' "$KEY_P8" > "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8"
+          # altool 固定去这个目录找
+          mkdir -p ~/.appstoreconnect/private_keys
+          cp "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8" ~/.appstoreconnect/private_keys/
+
+      - name: 打 archive
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            -skipPackagePluginValidation \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            MARKETING_VERSION="${{ inputs.version_name }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            archive 2>&1 | tail -40
+
+      - name: 导出 IPA
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tail -30
+          ls -la "$RUNNER_TEMP/export"
+
+      - name: 上传 IPA 到这次运行的产物里
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 上传到 TestFlight
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          IPA=$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)
+          xcrun altool --upload-app -f "$IPA" -t ios \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+
+      - name: 清掉 key
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/keys" ~/.appstoreconnect/private_keys

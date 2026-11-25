@@ -1,0 +1,16 @@
+{
+  "_comment": "===== 只需要改这个文件 =====",
+
+  "siteUrl": "https://shop.example.com",
+  "appName": "My App",
+  "appId": "com.example.shop",
+
+  "extraAllowedHosts": [],
+
+  "themeColor": "#1565C0",
+  "splashBackground": "#ffffff",
+  "statusBarStyle": "light",
+
+  "enablePullToRefresh": true,
+  "enablePushNotifications": false
+}

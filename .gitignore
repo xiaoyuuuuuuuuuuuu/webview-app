@@ -1,0 +1,35 @@
+# 依赖
+node_modules/
+
+# 构建产物
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/release/
+ios/App/build/
+ios/App/Pods/
+ios/App/output/
+ios/DerivedData/
+www/
+
+# 签名文件 —— 千万不要提交
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+keystore.properties
+android/app/google-services.json
+ios/App/App/GoogleService-Info.plist
+
+# 系统杂项
+.DS_Store
+*.log
+.idea/
+*.iml
+xcuserdata/
+icons/
+
+# 起点代码的压缩包,解压后就没用了
+webview-app.tar.gz

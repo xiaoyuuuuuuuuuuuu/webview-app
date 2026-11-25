@@ -1,0 +1,12 @@
+# 统一换行符。gradlew 和 .sh 在 Linux runner 上必须是 LF,
+# 否则 CI 会报 "bad interpreter: No such file or directory"。
+* text=auto
+
+android/gradlew text eol=lf
+*.sh           text eol=lf
+*.bat          text eol=crlf
+
+*.png  binary
+*.jar  binary
+*.jks  binary
+*.keystore binary

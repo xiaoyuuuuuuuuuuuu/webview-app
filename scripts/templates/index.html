@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{APP_NAME}}</title>
+<style>
+  :root { --bg:#ffffff; --accent:{{THEME_COLOR}}; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0c0c0e; } }
+  html,body { height:100%; margin:0; background:var(--bg); }
+  body { display:flex; align-items:center; justify-content:center; }
+  .spinner {
+    width:36px; height:36px; border:3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg) } }
+</style>
+</head>
+<body>
+  <div class="spinner" role="status" aria-label="加载中"></div>
+  <script>
+    // 兜底页:正常情况下 app 直接加载线上网站(capacitor.config.ts 的 server.url),
+    // 不会走到这里。如果真走到了,就直接跳到网站。
+    window.location.replace("{{SITE_URL}}");
+  </script>
+</body>
+</html>
