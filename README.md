@@ -300,6 +300,51 @@ Identifiers → 你的 App ID → 勾上 Associated Domains → 重新生成 pro
 代价:`server.url` 模式下冷启动会**先加载网站首页,再跳到目标页**,也就是两次加载。
 想避免得在原生侧把 URL 存下来当初始 URL,成本大得多,目前没做。
 
+### 强制更新提示
+
+版本太旧时显示一个**不可关闭**的全屏遮罩,只留"去更新"一条出路。
+
+**做在原生侧,不是网页侧** —— WebView 自己崩了、或者网站整个打不开的时候,
+网页里的提示也显示不出来,而"版本太旧导致前后端对不上"恰恰经常以这种形式表现。
+
+#### 怎么开
+
+1. 把 `website/app-version.json` 放到网站上(或者用任何能返回同样 JSON 的接口)
+2. `app.config.json` 的 `updateCheckUrl` 填它的地址,**必须 https**
+3. `npm run sync`
+
+接口格式:
+
+```json
+{
+  "android": { "minVersionCode": 12, "storeUrl": "https://play.google.com/store/apps/details?id=..." },
+  "ios":     { "minVersion": "1.2.0", "storeUrl": "https://apps.apple.com/app/id..." },
+  "message": "这个版本太旧了,请更新后继续使用。"
+}
+```
+
+- `android.minVersionCode` 对的是 Android 的 `versionCode`(CI 里用 `github.run_number`)
+- `ios.minVersion` 对的是 iOS 的 `CFBundleShortVersionString`(`1.2.0` 这种)。
+  按点分段逐段比数字,所以 `1.10.0` 比 `1.9.0` **新**(不是字符串比较)
+- `storeUrl` 放在接口里而不是编译进 app,这样上架后拿到真实商店链接不用重新发版
+- `updateCheckUrl` 留空就是关闭,两端原生代码第一行就 return
+
+#### 一个刻意的设计:失败就什么都不做
+
+拿不到、解析不了、字段缺失、超时(8 秒)、不是 https —— **任何一种情况都什么都不做**。
+一个会因为接口挂了就把用户锁在遮罩后面的强制更新,比没有强制更新糟得多。
+
+遮罩挡住的东西也都考虑了:Android 的返回键(注册一个什么都不做的
+`OnBackPressedCallback`,最后注册的优先级最高,会盖住 App 插件那个)、
+iOS 的侧滑返回(`allowsBackForwardNavigationGestures = false`)。
+两边遮罩都是不透明背景 + 吃掉触摸事件。
+
+#### 发版时怎么用
+
+正常发版**不要**动 `minVersionCode` / `minVersion` —— 只有在"旧版本会出错"的时候才抬,
+比如接口改了不兼容、或者修了一个数据会出问题的 bug。抬了之后旧版本用户在更新前
+完全用不了 app,这是很重的手段。
+
 ## 三、怎么出安装包
 
 ### 路线 A:GitHub Actions(推荐,不用 Mac 也不用装 Android Studio)
@@ -681,6 +726,7 @@ website/
   app-push.js            ← 要推送才需要,放在 app-shell.js 之后(见第七节)
   app-tabbar.js          ← 底部 Tab 栏,ITEMS 必须改成你站上的页面(见第六节)
   sw.js                  ← 离线缓存,必须放网站【根目录】(见第六节)
+  app-version.json       ← 强制更新的版本接口,要开才需要(见第二节)
   .well-known/           ← 也上传到网站根目录,深度链接要用
     assetlinks.json              Android,指纹要手填
     apple-app-site-association   iOS,Team ID 要手填(没有 .json 后缀是故意的)

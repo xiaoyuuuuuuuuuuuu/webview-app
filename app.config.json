@@ -14,6 +14,9 @@
   "_safeArea": "native = 原生把 WebView 让开系统栏(默认,网站不用改);cover = 内容铺到屏幕边缘,网站 CSS 必须自己让开",
   "safeArea": "native",
 
+  "_updateCheckUrl": "强制更新用的版本接口,留空就是关闭。格式见 website/app-version.json",
+  "updateCheckUrl": "",
+
   "enablePullToRefresh": true,
   "enablePushNotifications": false
 }

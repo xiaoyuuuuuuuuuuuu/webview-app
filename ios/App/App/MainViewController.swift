@@ -1,5 +1,5 @@
 // 本项目对 cap add 生成结果的 iOS 改动(另一处是 SceneDelegate 里换成这个类):
-// 顶部页面加载进度条 + 侧滑返回。
+// 顶部页面加载进度条 + 侧滑返回 + 强制更新提示。
 //
 // 为什么只能这样扩展:Capacitor 的 WebViewDelegationHandler 占着 navigationDelegate
 // 和 uiDelegate,而且它在 bridge 里是 public private(set) var —— 外部替换不了。
@@ -19,6 +19,10 @@ class MainViewController: CAPBridgeViewController {
     // configure.mjs 会把 app.config.json 的 themeColor 同步到下面这一行,
     // 别手改 —— 跑一次 npm run configure 就会被覆盖回去。
     private static let themeColorHex = "#1565C0"  // configure.mjs:themeColor
+
+    // 版本接口地址。由 scripts/configure.mjs 从 app.config.json 的 updateCheckUrl 同步,
+    // 别手改 —— 跑一次 npm run configure 就会被覆盖回去。
+    private static let updateCheckUrl = ""  // configure.mjs:updateCheckUrl
 
     private static let barHeight: CGFloat = 3
     /// 延迟出现:缓存命中的页面瞬间加载完,闪一下比没有更难看
@@ -45,6 +49,7 @@ class MainViewController: CAPBridgeViewController {
         super.capacitorDidLoad()
         installProgressView()
         observeProgress()
+        checkForRequiredUpdate()
     }
 
     deinit {
@@ -135,6 +140,117 @@ class MainViewController: CAPBridgeViewController {
         appearWorkItem?.cancel()
         appearWorkItem = nil
     }
+}
+
+// MARK: - 强制更新
+
+extension MainViewController {
+
+    /// 为什么做在原生侧:WebView 自己崩了、或者网站整个打不开的时候,网页里的提示
+    /// 也显示不出来 —— 而"版本太旧导致前后端对不上"恰恰经常以这种形式表现。
+    ///
+    /// 安全性质:拿不到、解析不了、字段缺失、超时 —— 任何一种情况都【什么都不做】。
+    /// 一个会因为接口挂了就把用户锁在遮罩后面的强制更新,比没有强制更新糟得多。
+    func checkForRequiredUpdate() {
+        let raw = Self.updateCheckUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty, let url = URL(string: raw), url.scheme?.lowercased() == "https" else { return }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let self = self,
+                  let data = data,
+                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let ios = root["ios"] as? [String: Any],
+                  let minVersion = ios["minVersion"] as? String
+            else { return }
+
+            guard let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                  Self.isVersion(current, olderThan: minVersion)
+            else { return }
+
+            let storeUrl = ios["storeUrl"] as? String
+            let message = (root["message"] as? String) ?? "这个版本太旧了,请更新后继续使用。"
+            DispatchQueue.main.async { self.showUpdateGate(message: message, storeUrl: storeUrl) }
+        }.resume()
+    }
+
+    /// 按点分段逐段比数字。段数不一样时短的那个当补 0("1.2" < "1.2.1")。
+    /// 任何一段不是数字就当做"不旧",宁可不提示也别误锁用户。
+    static func isVersion(_ current: String, olderThan minimum: String) -> Bool {
+        let a = current.split(separator: ".").map { Int($0) }
+        let b = minimum.split(separator: ".").map { Int($0) }
+        // 空字符串在 Swift 里 split 出来是空数组,不加这一条会被当成 0 → 误判成"旧"
+        if a.isEmpty || b.isEmpty { return false }
+        if a.contains(where: { $0 == nil }) || b.contains(where: { $0 == nil }) { return false }
+        let lhs = a.compactMap { $0 }
+        let rhs = b.compactMap { $0 }
+        for index in 0..<max(lhs.count, rhs.count) {
+            let l = index < lhs.count ? lhs[index] : 0
+            let r = index < rhs.count ? rhs[index] : 0
+            if l != r { return l < r }
+        }
+        return false
+    }
+
+    /// 不可关闭的全屏遮罩。只有去更新这一条出路。
+    func showUpdateGate(message: String, storeUrl: String?) {
+        guard view.subviews.first(where: { $0.tag == Self.updateGateTag }) == nil else { return }
+
+        let gate = UIView()
+        gate.tag = Self.updateGateTag
+        gate.backgroundColor = .systemBackground          // 不透明,把 WebView 彻底盖住
+        gate.isUserInteractionEnabled = true              // 触摸也不会漏到下面
+        gate.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = UILabel()
+        title.text = "需要更新"
+        title.font = .systemFont(ofSize: 20, weight: .semibold)
+        title.textAlignment = .center
+
+        let body = UILabel()
+        body.text = message
+        body.font = .systemFont(ofSize: 15)
+        body.textColor = .secondaryLabel
+        body.numberOfLines = 0
+        body.textAlignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [title, body])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.alignment = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        if let storeUrl = storeUrl, let target = URL(string: storeUrl) {
+            let button = UIButton(type: .system)
+            button.setTitle("去更新", for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+            button.addAction(UIAction { _ in UIApplication.shared.open(target) }, for: .touchUpInside)
+            stack.addArrangedSubview(button)
+            stack.setCustomSpacing(24, after: body)
+        }
+
+        gate.addSubview(stack)
+        view.addSubview(gate)
+
+        NSLayoutConstraint.activate([
+            gate.topAnchor.constraint(equalTo: view.topAnchor),
+            gate.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            gate.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            gate.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            stack.centerYAnchor.constraint(equalTo: gate.safeAreaLayoutGuide.centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: gate.safeAreaLayoutGuide.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: gate.safeAreaLayoutGuide.trailingAnchor, constant: -28)
+        ])
+
+        // 侧滑返回也要挡住,否则一划就能看到后面的页面
+        webView?.allowsBackForwardNavigationGestures = false
+    }
+
+    static var updateGateTag: Int { 0x5547 }
 }
 
 private extension UIColor {

@@ -9,4 +9,8 @@
     <string name="download_done">下载完成,在「文件 / 下载」里查看</string>
     <string name="download_failed">下载失败</string>
     <string name="download_unsupported">这个链接无法在 app 内下载</string>
+    <!-- 强制更新提示 -->
+    <string name="update_required_title">需要更新</string>
+    <string name="update_required_message">这个版本太旧了,请更新后继续使用。</string>
+    <string name="update_required_action">去更新</string>
 </resources>

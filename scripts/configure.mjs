@@ -36,6 +36,15 @@ if (!/^#[0-9a-f]{6}$/i.test(cfg.themeColor)) {
 if (cfg.safeArea !== undefined && cfg.safeArea !== 'native' && cfg.safeArea !== 'cover') {
   errors.push(`safeArea 只能是 "native" 或 "cover": ${cfg.safeArea}`);
 }
+if (cfg.updateCheckUrl) {
+  try {
+    if (new URL(cfg.updateCheckUrl).protocol !== 'https:') {
+      errors.push(`updateCheckUrl 必须是 https:// 开头: ${cfg.updateCheckUrl}`);
+    }
+  } catch {
+    errors.push(`updateCheckUrl 不是合法网址: ${cfg.updateCheckUrl}`);
+  }
+}
 if (errors.length) {
   console.error('\n✗ app.config.json 有问题:\n');
   errors.forEach((e) => console.error('  • ' + e));
@@ -143,6 +152,13 @@ if (existsSync(join(root, 'android'))) {
     }
   }
 
+  // 强制更新的版本接口地址。留空就是关闭,原生侧第一行就 return
+  patch(
+    `android/app/src/main/java/${cfg.appId.split('.').join('/')}/MainActivity.java`,
+    'Android 版本接口地址',
+    (s) => s.replace(/(UPDATE_CHECK_URL = ")[^"]*(")/, `$1${cfg.updateCheckUrl || ''}$2`),
+  );
+
   // 深度链接(App Links)的 host
   patch('android/app/src/main/AndroidManifest.xml', 'Android 深度链接 host', (s) =>
     s.replace(/(<data android:scheme="https" android:host=")[^"]*(")/, `$1${siteUrl.host}$2`),
@@ -239,6 +255,11 @@ if (existsSync(join(root, 'ios'))) {
       return s;
     });
   }
+
+  // 强制更新的版本接口地址
+  patch('ios/App/App/MainViewController.swift', 'iOS 版本接口地址', (s) =>
+    s.replace(/(updateCheckUrl = ")[^"]*(")/, `$1${cfg.updateCheckUrl || ''}$2`),
+  );
 
   // 主题色。iOS 这边没有 colors.xml 那种东西,所以注入到 MainViewController 的
   // themeColorHex 常量 —— 这样主题色仍然只在 app.config.json 配一次。
