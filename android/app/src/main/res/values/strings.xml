@@ -4,4 +4,9 @@
     <string name="title_activity_main">My App</string>
     <string name="package_name">com.example.shop</string>
     <string name="custom_url_scheme">com.example.shop</string>
+    <!-- 文件下载的提示。前 4 条由 scripts/configure.mjs 同步,这几条是手写的 -->
+    <string name="download_started">开始下载 %1$s</string>
+    <string name="download_done">下载完成,在「文件 / 下载」里查看</string>
+    <string name="download_failed">下载失败</string>
+    <string name="download_unsupported">这个链接无法在 app 内下载</string>
 </resources>

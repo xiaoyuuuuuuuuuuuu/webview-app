@@ -1,4 +1,6 @@
-// 本项目对 cap add 生成结果的唯一 Android 改动:顶部页面加载进度条。
+// 本项目对 cap add 生成结果的 Android 改动,两项,都集中在这个文件:
+//   1. 顶部页面加载进度条
+//   2. 文件下载(WebView 自己不会下载,点下载链接完全没反应)
 //
 // 为什么做在原生侧:server.url 模式下跨页导航会销毁整个 JS 环境,新页面的脚本要等
 // HTML 到达才执行 —— 而等 HTML 的那几百毫秒到几秒正是需要显示进度的时间段,
@@ -9,24 +11,44 @@
 // onProgressChanged(已核对 8.6.2 源码),所以继承它、只补这一个方法、并且第一行
 // 调 super 不会吞掉任何 Capacitor 行为。承载本地资源服务 / bridge 注入 / 错误页
 // 跳转的是 BridgeWebViewClient,是另一个对象,这里完全没碰。
+// 下载用的 WebView.setDownloadListener 是另一个回调,Capacitor 完全没碰过。
 //
 // 升级 Capacitor 后要重新验证:BridgeWebChromeClient 是否开始自己处理
 // onProgressChanged,以及 capacitor_bridge_layout_main.xml 的根布局有没有换。
 package com.example.shop;
 
+import android.Manifest;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.webkit.CookieManager;
+import android.webkit.URLUtil;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
+import android.widget.Toast;
+
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
+import com.getcapacitor.Logger;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class MainActivity extends BridgeActivity {
 
@@ -44,15 +66,27 @@ public class MainActivity extends BridgeActivity {
     private Runnable appearTask;
     private int lastProgress;
 
+    /** 下载通知权限的请求码。Capacitor 的插件走 AndroidX 的 ActivityResultLauncher,不占用请求码 */
+    private static final int REQ_POST_NOTIFICATIONS = 0x5744;
+
+    private final Set<Long> myDownloads = new HashSet<>();
+    private BroadcastReceiver downloadReceiver;
+    private boolean notificationPermissionAsked;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         installProgressBar();
+        installDownloadListener();
     }
 
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        if (downloadReceiver != null) {
+            unregisterReceiver(downloadReceiver);
+            downloadReceiver = null;
+        }
         super.onDestroy();
     }
 
@@ -190,5 +224,146 @@ public class MainActivity extends BridgeActivity {
         } else {
             progressFill.setScaleX(scale);
         }
+    }
+
+    // ---------------------------------------------------------------- 下载
+
+    // WebView 自己不会下载:点 PDF / 导出报表这种链接完全没反应,用户以为 app 坏了。
+    // setDownloadListener 是 WebView 的原生回调,Capacitor 没有碰过,所以这里是安全的。
+    // 真正的下载交给系统 DownloadManager —— 进度在通知栏、断点续传和重试都是系统管的,
+    // 自己写 HTTP 下载只会更差。
+    //
+    // iOS 不走这条路:那边 navigationDelegate 被 Capacitor 占着,WKDownloadDelegate
+    // 拿不到,所以 iOS 在 website/app-shell.js 里拦下载链接交给 Browser.open()。
+    private void installDownloadListener() {
+        bridge
+                .getWebView()
+                .setDownloadListener(
+                        (url, userAgent, contentDisposition, mimeType, contentLength) ->
+                                startDownload(url, userAgent, contentDisposition, mimeType));
+    }
+
+    private void startDownload(String url, String userAgent, String contentDisposition, String mimeType) {
+        Uri uri;
+        try {
+            uri = Uri.parse(url);
+        } catch (Exception e) {
+            Logger.error("下载地址解析失败: " + url, e);
+            return;
+        }
+
+        // DownloadManager 只认 http/https,blob: / data: 传进去会直接抛
+        // IllegalArgumentException。这类链接丢给系统处理,处理不了就明确告诉用户。
+        String scheme = uri.getScheme();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            if (!bridge.launchIntent(uri)) {
+                Toast.makeText(this, R.string.download_unsupported, Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+
+        String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+
+        try {
+            DownloadManager.Request request = new DownloadManager.Request(uri);
+
+            // 最容易漏的一步:要登录才能下的文件,不带 cookie 会下到一个登录页 HTML,
+            // 而且因为 HTTP 状态码是 200,看起来还像"下载成功了"。
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (cookie != null) {
+                request.addRequestHeader("Cookie", cookie);
+            }
+            if (userAgent != null) {
+                request.addRequestHeader("User-Agent", userAgent);
+            }
+            if (mimeType != null) {
+                request.setMimeType(mimeType);
+            }
+            request.setTitle(fileName);
+            request.setDescription(getString(R.string.app_name));
+            request.setNotificationVisibility(
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            // Android 10+ 写公共 Downloads 目录不需要存储权限
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+
+            DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (manager == null) {
+                Toast.makeText(this, R.string.download_failed, Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            long id = manager.enqueue(request);
+            myDownloads.add(id);
+            registerDownloadReceiver();
+            ensureNotificationPermission();
+            Toast.makeText(this, getString(R.string.download_started, fileName), Toast.LENGTH_SHORT)
+                    .show();
+        } catch (Exception e) {
+            // 同名文件、目录建不出来、URL 不合法都会走到这里
+            Logger.error("下载失败: " + url, e);
+            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void registerDownloadReceiver() {
+        if (downloadReceiver != null) return;
+        downloadReceiver =
+                new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                        if (!myDownloads.remove(id)) return;   // 别的 app 的下载,不管
+                        Toast.makeText(
+                                        MainActivity.this,
+                                        isDownloadSuccessful(id)
+                                                ? R.string.download_done
+                                                : R.string.download_failed,
+                                        Toast.LENGTH_LONG)
+                                .show();
+                    }
+                };
+        // ACTION_DOWNLOAD_COMPLETE 是系统广播,所以必须注册成 EXPORTED(Android 14+ 强制要指定)
+        ContextCompat.registerReceiver(
+                this,
+                downloadReceiver,
+                new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    /** 广播在下载失败时也会发,所以要查一下状态,别把失败说成完成 */
+    private boolean isDownloadSuccessful(long id) {
+        DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (manager == null) return false;
+        try (Cursor cursor = manager.query(new DownloadManager.Query().setFilterById(id))) {
+            if (cursor == null || !cursor.moveToFirst()) return false;
+            int column = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
+            if (column < 0) return false;
+            return cursor.getInt(column) == DownloadManager.STATUS_SUCCESSFUL;
+        } catch (Exception e) {
+            Logger.error("查下载状态失败", e);
+            return false;
+        }
+    }
+
+    /**
+     * Android 13+ 没有这个权限的话下载进度通知不显示(下载本身照样进行)。
+     * 所以只在用户真的点了下载之后才请求 —— 一进 app 就弹权限是最招人烦的做法。
+     */
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (notificationPermissionAsked) return;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        notificationPermissionAsked = true;
+        requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQ_POST_NOTIFICATIONS);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        // 这个权限拒了也不影响下载,只是没有通知,所以不往下传给 Capacitor
+        if (requestCode == REQ_POST_NOTIFICATIONS) return;
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 }

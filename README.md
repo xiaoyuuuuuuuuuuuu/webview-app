@@ -88,6 +88,7 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 | 下拉刷新 | 没有下拉刷新 |
 | 断网提示条 | 断网时没提示(但会显示离线页) |
 | `target="_blank"` 链接 | 安卓上点了没反应 |
+| iOS 文件下载 | iOS 上点下载链接没反应(安卓走原生,不受影响) |
 
 第二条是硬伤,所以这个文件实际上是必须的,不是可选增强。
 
@@ -108,6 +109,35 @@ AppShell.platform;  // 'ios' | 'android'
 ```
 
 ---
+
+### 文件下载
+
+两个平台走的是**不同的路**,这是刻意的,不是偷懒。
+
+| | 实现 | 文件去哪 |
+|---|---|---|
+| Android | 原生 `WebView.setDownloadListener` → 系统 `DownloadManager` | 公共「下载」目录,通知栏有进度 |
+| iOS | `app-shell.js` 拦下载链接 → `Browser.open()`(Safari View Controller) | 用户自己选「存到文件」 |
+
+iOS 之所以不走原生:`navigationDelegate` 被 Capacitor 的 `WebViewDelegationHandler`
+占着,而且是 `private(set)`,拿不到 `WKDownloadDelegate`。硬抢会连带废掉离线页和
+bridge 清理,代价远大于收益。
+
+**iOS 有一个必须知道的限制**:Safari View Controller 不共享 WebView 的 cookie,
+所以**需要登录才能下载的文件在 iOS 上会失败**(下到的是登录页)。两个办法:
+
+1. **推荐**:后端给下载链接发一个带签名的短期 URL(`?t=<signed>`,有效期几分钟),
+   顺便也解决了链接被转发的问题。这个改动在服务器端,比跟 Capacitor 搏斗划算
+2. 或者明确告诉用户 iOS 上这个功能受限 —— 不要假装它能用
+
+哪些链接算下载:带 `download` 属性的 `<a>`,或者路径以
+`.pdf .xls(x) .doc(x) .csv .zip .rar .7z .ppt(x) .apk .ipa .dmg .mp4 .mp3` 结尾的。
+像 `/export?type=pdf` 这种**路径里没有扩展名**的导出接口认不出来,给那个 `<a>`
+加上 `download` 属性就行。要改这个列表,改 `app-shell.js` 里 `CONFIG.downloadExtensions`。
+
+Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登录态文件能下),
+以及 `POST_NOTIFICATIONS` 权限是在用户第一次点下载时才请求的(Android 13+),
+拒绝了下载照样进行,只是通知栏不显示进度。
 
 ## 三、怎么出安装包
 

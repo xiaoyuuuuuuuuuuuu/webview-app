@@ -32,4 +32,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 下载进度通知。Android 13+ 还要运行时请求,见 MainActivity.ensureNotificationPermission()。
+         没授权下载照样进行,只是通知栏不显示进度。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

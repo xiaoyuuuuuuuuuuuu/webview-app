@@ -13,7 +13,8 @@
  *   3. 下拉刷新
  *   4. 断网/恢复的提示条
  *   5. target="_blank" 的链接(安卓 WebView 默认点了没反应)
- *   6. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
+ *   6. iOS 上的文件下载(安卓走原生 DownloadManager,不经过这里)
+ *   7. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
  */
 (function () {
   'use strict';
@@ -28,6 +29,9 @@
     onlineText: '网络已恢复',
     externalInAppBrowser: true, // 外链用应用内浏览器(false = 丢给系统浏览器)
     hideSplashDelay: 0,        // 收起启动页前多等几毫秒,给网站渲染时间
+    // iOS 的下载链接交给系统浏览器(安卓有原生 DownloadManager,不走这里)
+    interceptDownloadsOnIOS: true,
+    downloadExtensions: /\.(pdf|xlsx?|docx?|csv|zip|rar|7z|pptx?|apk|ipa|dmg|mp4|mp3)$/i,
   };
   // =================================================
 
@@ -224,6 +228,10 @@
       var h = host.replace(/^www\./, '');
       return h === baseHost || h.endsWith('.' + baseHost);
     }
+    function isDownloadLink(a, url) {
+      if (a.hasAttribute('download')) return true;
+      try { return CONFIG.downloadExtensions.test(url.pathname); } catch (err) { return false; }
+    }
     function openExternal(href) {
       if (CONFIG.externalInAppBrowser) {
         call('Browser', 'open', { url: href, presentationStyle: 'popover' });
@@ -240,6 +248,25 @@
       var url;
       try { url = new URL(a.href, location.href); } catch (err) { return; }
       if (url.protocol !== 'http:' && url.protocol !== 'https:') return; // tel:/mailto: 交给系统
+
+      // ----- 下载链接 -----
+      // 安卓不在这里拦:原生 WebView.setDownloadListener 会接住,交给系统
+      // DownloadManager(通知栏进度 + 断点续传),比这里能做的好得多。
+      //
+      // iOS 只能走这条路:navigationDelegate 被 Capacitor 的 WebViewDelegationHandler
+      // 占着且是 private(set),拿不到 WKDownloadDelegate,所以把链接交给
+      // Safari View Controller,用户在那里能「存到文件」或分享到别的 app。
+      //
+      // 注意:Safari View Controller 不共享 WebView 的 cookie,所以需要登录才能
+      // 下载的文件在 iOS 上会失败(下到登录页)。要支持就得让后端给下载链接发一个
+      // 带签名的短期 URL(?t=<signed>),这个改动在服务器端,比跟 Capacitor 的
+      // delegate 搏斗划算得多。
+      if (CONFIG.interceptDownloadsOnIOS && platform === 'ios' && isDownloadLink(a, url)) {
+        e.preventDefault();
+        call('Browser', 'open', { url: url.href });
+        return;
+      }
+
       // 跨域链接 Capacitor 原生层已经会丢给系统浏览器,这里只补 target=_blank
       if (isSameSite(url.hostname) && a.target === '_blank') {
         e.preventDefault();
