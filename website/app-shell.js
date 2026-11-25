@@ -16,7 +16,8 @@
  *   6. iOS 上的文件下载(安卓走原生 DownloadManager,不经过这里)
  *   7. safe area:统一成 --app-safe-* 四个 CSS 变量,给网站 CSS 用
  *   8. 深度链接:从外部点进来时跳到对应页面
- *   9. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
+ *   9. 离线缓存:只在 app 里注册 /sw.js,浏览器访问网站不受影响
+ *  10. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
  */
 (function () {
   'use strict';
@@ -37,6 +38,10 @@
     // 最好是直接在网站的 <meta name="viewport"> 里写上 viewport-fit=cover,
     // 这里改只是兜底(脚本是 defer 的,改完会多一次重排)。
     safeArea: 'native',
+    // 离线缓存。只在 app 里注册,所以不会影响浏览器访问你的网站。
+    // sw.js 必须放在网站根目录,否则拿不到 '/' 作用域。
+    offlineCache: true,
+    serviceWorkerUrl: '/sw.js',
     // iOS 的下载链接交给系统浏览器(安卓有原生 DownloadManager,不走这里)
     interceptDownloadsOnIOS: true,
     downloadExtensions: /\.(pdf|xlsx?|docx?|csv|zip|rar|7z|pptx?|apk|ipa|dmg|mp4|mp3)$/i,
@@ -370,6 +375,42 @@
     });
   })();
 
+  // ---------- 7. 离线缓存 ----------
+  // 只在 app 里注册。app 的 WebView 有自己独立的存储,和用户浏览器里的注册
+  // 互不干扰,所以线上站不会被这个 SW 影响 —— 这是刻意的选择,
+  // 一个写坏的 SW 能把整个线上站搞挂。
+  //
+  // 缓存策略和"为什么 HTML 必须网络优先"写在 sw.js 的文件头里,改之前先看那段。
+  var offline = {
+    register: function () {
+      if (!('serviceWorker' in navigator)) return Promise.resolve(null);
+      return navigator.serviceWorker.register(CONFIG.serviceWorkerUrl, { scope: '/' }).catch(
+        function (e) {
+          // 最常见的原因:sw.js 不在网站根目录,或者服务器给它的
+          // Content-Type 不是 JavaScript
+          console.warn('[app-shell] Service Worker 注册失败', e);
+          return null;
+        },
+      );
+    },
+    /** 清掉所有缓存并注销。排查"页面不更新"时用 */
+    clear: function () {
+      if (!('serviceWorker' in navigator)) return Promise.resolve(false);
+      return navigator.serviceWorker.ready
+        .then(function (reg) {
+          if (reg.active) reg.active.postMessage({ type: 'clear-cache' });
+          return reg.unregister();
+        })
+        .catch(function () { return false; });
+    },
+  };
+
+  if (CONFIG.offlineCache) {
+    // 等页面加载完再注册,别和首屏抢带宽
+    if (document.readyState === 'complete') offline.register();
+    else window.addEventListener('load', function () { offline.register(); }, { once: true });
+  }
+
   // 给网站用:window.AppShell.toast('...') 之类
   window.AppShell = {
     platform: platform,
@@ -377,6 +418,7 @@
     call: call,
     safeArea: safeArea,
     isSameSite: isSameSite,   // app-push.js 用它拦住推送里的站外 url
+    offline: offline,
     share: function (opts) { return call('Share', 'share', opts || {}); },
     exit: function () { return call('App', 'exitApp', {}); },
   };

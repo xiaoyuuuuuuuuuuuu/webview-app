@@ -80,6 +80,17 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 它们不是可选的 —— 没有这两个文件,点链接只会在浏览器里打开。
 
 要推送的话再加一个 `app-push.js`,放在 `app-shell.js` 之后(见第七节)。
+要过 Apple 4.2 还要加 `sw.js`(放根目录)和 `app-tabbar.js`(见第六节)。
+
+全套大概是这样:
+
+```html
+<script src="/app-shell.js" defer></script>
+<script src="/app-tabbar.js" defer></script>
+<script src="/app-push.js" defer></script>
+```
+
+加上根目录的 `/sw.js` 和 `/.well-known/` 下那两个文件。
 
 **这个脚本在普通浏览器里什么都不做**(第一个判断就退出了),所以可以无条件加到所有页面,
 不会影响网站本身,也不用判断 User-Agent。
@@ -400,18 +411,84 @@ Apple 的原则是:app 必须比「重新打包的网站」更多。审核不看
 
 而且 Apple 明确说过:光加推送、定位、分享这些,**不足以**构成足够的体验。
 
-能明显降低风险的做法:
+#### 本项目为这条做了什么
 
-- **让它一打开就不像网站**。用 CSS 在 `.in-app` 下隐藏网站的顶部导航栏、
-  面包屑、页脚那一堆链接、cookie 横幅、「下载 App」广告。
-- **加一个原生感的底部 Tab 栏**(纯 HTML/CSS 做在网站里也算),
-  别让用户靠网页里的超链接导航。
-- **离线能用一点东西**。本项目已经有自定义离线页,再往前一步:
-  让最近看过的页面能离线打开(网站加 Service Worker 缓存)。
-- **用上真正需要原生的能力**:扫码、生物识别登录、相机上传、保存到相册。
-  挑一两个跟你业务真的相关的做掉。
-- **别有死链和半成品页**。审核员十来分钟就在找这些。
-- **登录站一定要给测试账号**,写在 App Review Notes 里。
+| 做法 | 算不算"Safari 做不到" | 在哪 |
+|---|---|---|
+| **离线阅读** | ✅ 算。审核员真的会开飞行模式试 | `website/sw.js`,由 `app-shell.js` 只在 app 里注册 |
+| **原生底部 Tab 栏** | ❌ 不算能力,但是审核员第一眼的"这不是网页"信号 | `website/app-tabbar.js` |
+| 推送 | ❌ Apple 点名说光有推送不够 | 第七节 |
+| 深度链接 | ❌ 不算,但是加分项 | 第二节 |
+
+所以组合是「一个真能力 + 一层观感」。**只做 Tab 栏不够**,离线阅读是这套里
+唯一拿得出手的能力;如果你的业务里有扫码、拍照上传、生物识别这类场景,
+再加一个会稳得多 —— 但别硬加业务里不存在的功能,审核员看得出来。
+
+#### 离线阅读
+
+把 `website/sw.js` 放到网站**根目录**(`/sw.js`,否则拿不到 `/` 作用域)。
+`app-shell.js` 的 `CONFIG.offlineCache` 默认开,会在页面 load 之后注册它。
+
+**它只在 app 里注册**,浏览器访问你的网站不会注册这个 SW —— 一个写坏的 SW
+能把整个线上站搞挂,所以这是刻意的。app 的 WebView 有自己独立的存储,
+和用户浏览器里的注册互不干扰。
+
+策略:
+
+| 请求 | 策略 | 理由 |
+|---|---|---|
+| HTML 页面 | **网络优先**,失败才用缓存 | 电商站的价格和库存不能给缓存版本 |
+| css/js/字体/图片 | 缓存优先,后台顺手更新,上限 80 条 | 这些不常变 |
+| `/api`、`/cart`、`/checkout`、`/account`、`/login`、`wp-admin` | **一律不缓存** | 缓存这些会出真事故 |
+| 跨域、POST、带 Range 的媒体 | 不碰 | |
+
+**改 `sw.js` 之前先读它的文件头。** 里面有一条是读 Capacitor 源码定下来的硬规则:
+Android 上原生 bridge 不是靠 WKUserScript 注入的,而是**代理 HTML 请求、把
+bridge JS 内联插进 `<head>`**(`WebViewLocalServer.handleProxyRequest` →
+`JSInjector.getInjectedStream`),而且**只在请求的 `Accept` 头包含 `text/html`
+时才注入**。所以 SW 里 `fetch` 必须传原始的 `request` 对象,传 `request.url`
+会新建一个 `Accept: */*` 的请求 → Android 不注入 bridge → 缓存下来的 HTML 里
+没有 `window.Capacitor` → 离线打开那页时 `app-shell.js` 整个失效。
+
+还有一点:SW 一旦接管了导航请求,原生层就看不到"主框架加载失败",
+`errorPath`(自定义离线页)**不会触发**。所以 `sw.js` 自己返回一个兜底页。
+
+排查"页面怎么不更新"用 `AppShell.offline.clear()`,清缓存并注销。
+改了缓存策略记得把 `sw.js` 里的 `VERSION` 加一。
+
+#### 底部 Tab 栏
+
+把 `website/app-tabbar.js` 放到网站上,**在 `app-shell.js` 之后**引用。
+然后**必须改文件开头的 `ITEMS`**,href 和文字都要是你站上真实存在的页面 ——
+指向死链比没有 Tab 栏更糟。
+
+它会给 `<html>` 加 `in-app-tabbar` class 并给 body 留出底部空间,
+safe area 用的是 `--app-safe-bottom`,所以 `native` 和 `cover` 两种模式都对。
+结算流程下默认不显示(`CONFIG.hideOn`)。
+
+#### 还要你自己做的「去网页化」
+
+这几条成本低、效果直接,选择器只有你知道,所以没法替你写:
+
+```css
+/* 在 app 里隐藏这些 —— 选择器换成你网站的 */
+.in-app .site-header-nav,      /* 网站自己的顶部导航,Tab 栏已经替代了 */
+.in-app .breadcrumb,
+.in-app .site-footer-links,    /* 页脚那一堆链接 */
+.in-app .cookie-banner,
+.in-app .app-download-banner { /* "下载我们的 App" 横幅 */
+  display: none !important;
+}
+```
+
+- **别有死链和半成品页**。审核员十来分钟就在找这些
+- **图标和启动页必须换掉占位图**(`npm run verify` 会一直提醒),否则容易撞 4.3(a)
+- App Store 截图用真实页面
+- 要登录才能用的话,**一定要在 App Review Notes 里给测试账号**。
+  即使不用登录,如果下单过程中有手机验证码之类的门,也要写清楚怎么走完一单 ——
+  审核员走不到支付就会判"功能不完整"
+- **卖数字商品或订阅的话必须走 IAP**(Guideline 3.1.1),用自己的支付链路必拒。
+  卖实物商品不受这条限制
 
 ### Guideline 4.3(a)(Spam)
 
@@ -602,6 +679,8 @@ scripts/
 website/
   app-shell.js           ← 上传到你的网站根目录(见第二节)
   app-push.js            ← 要推送才需要,放在 app-shell.js 之后(见第七节)
+  app-tabbar.js          ← 底部 Tab 栏,ITEMS 必须改成你站上的页面(见第六节)
+  sw.js                  ← 离线缓存,必须放网站【根目录】(见第六节)
   .well-known/           ← 也上传到网站根目录,深度链接要用
     assetlinks.json              Android,指纹要手填
     apple-app-site-association   iOS,Team ID 要手填(没有 .json 后缀是故意的)
