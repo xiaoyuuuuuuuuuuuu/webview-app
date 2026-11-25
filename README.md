@@ -79,6 +79,8 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 做完深度链接那一节之后,`website/.well-known/` 下的两个文件也要上传到网站根目录,
 它们不是可选的 —— 没有这两个文件,点链接只会在浏览器里打开。
 
+要推送的话再加一个 `app-push.js`,放在 `app-shell.js` 之后(见第七节)。
+
 **这个脚本在普通浏览器里什么都不做**(第一个判断就退出了),所以可以无条件加到所有页面,
 不会影响网站本身,也不用判断 User-Agent。
 
@@ -431,20 +433,109 @@ Google Play 这边 webview 壳基本没问题。App Store 这边,纯壳子被拒
 
 ## 七、推送通知
 
-本项目已经装好 `@capacitor/push-notifications`,但要真正用起来还需要配 Firebase:
+完整链路有五段,缺任何一段推送都收不到。下面按"谁来做"分开写。
 
-1. `app.config.json` 里把 `enablePushNotifications` 设成 `true`
-2. 去 Firebase 建项目,加 Android 和 iOS 两个 app(包名填你的 `appId`)
-3. 下载 `google-services.json` → 放到 `android/app/`
-4. 下载 `GoogleService-Info.plist` → 放到 `ios/App/App/`
-5. iOS 还要在 Apple 开发者后台开 Push Notifications capability,
-   并把 APNs key 上传到 Firebase
-6. 网站侧调 `AppShell.call('PushNotifications', 'register')` 拿 token,
-   存到你的服务器
+### 已经做好的(代码在仓里)
 
-这两个凭据文件已经在 `.gitignore` 里了(里面有密钥,不要提交)。
+| 段 | 在哪 |
+|---|---|
+| Android 的 google-services 插件接线 | `android/build.gradle` 已有 classpath;`android/app/build.gradle` 末尾检测到 `google-services.json` 就自动 apply |
+| Android 通知权限声明 | `AndroidManifest.xml` 的 `POST_NOTIFICATIONS`,运行时请求在用户点下载或开通知时才发 |
+| iOS 的 `aps-environment` entitlement | `app.config.json` 里 `enablePushNotifications: true` 时由 `configure.mjs` 写进 `App.entitlements` |
+| iOS 把 `GoogleService-Info.plist` 加进 Xcode target | 同上,`configure.mjs` 直接改 `project.pbxproj`(**光把文件放对位置不够**,而没有 Mac 的人没法在 Xcode 里拖文件) |
+| 网站侧的权限请求、token 上报、点击跳转 | `website/app-push.js` |
+| CI 注入两个凭据文件 | `android.yml` / `ios.yml` 里按 secret 还原,没配就跳过 |
+| 服务器侧示例 | `server/` 下三个文件(**没在真实环境跑过,是示例**) |
 
-**如果暂时不需要推送,这一节整个跳过,不配也不影响 app 正常跑。**
+### 1. Firebase(你来做)
+
+1. `app.config.json` 里 `enablePushNotifications` 改成 `true`,跑 `npm run sync`
+2. Firebase 控制台建项目
+3. 加 Android app,包名填 `app.config.json` 里的 `appId`,**必须完全一致**
+4. 下载 `google-services.json` → 放 `android/app/`
+5. 加 iOS app,bundle id 同样填 `appId`
+6. 下载 `GoogleService-Info.plist` → 放 `ios/App/App/`
+7. Apple 开发者后台建 APNs Auth Key(.p8),上传到 Firebase 的 Cloud Messaging 设置
+8. Apple 开发者后台给 App ID **打开 Push Notifications 能力**,重新生成 provisioning profile
+
+两个凭据文件带密钥,已经在 `.gitignore` 里。CI 里通过 secret 注入:
+
+| secret | 内容 |
+|---|---|
+| `ANDROID_GOOGLE_SERVICES_JSON` | `google-services.json` 的全文 |
+| `IOS_GOOGLE_SERVICE_INFO_PLIST` | `GoogleService-Info.plist` 的全文 |
+
+没配这两个 secret 的话 CI 会打印一条 notice 然后继续 —— 但注意:
+**`enablePushNotifications: true` 之后 `GoogleService-Info.plist` 已经进了 Xcode
+target,iOS 构建缺这个文件会直接失败。** 要么配 secret,要么把开关关回去。
+
+### 2. 网站侧(加一个文件)
+
+```html
+<script src="/app-shell.js" defer></script>
+<script src="/app-push.js" defer></script>
+```
+
+`app-push.js` 自动做三件事:已经授权过的用户静默重新注册(token 会变,重装和清
+数据之后都要重新上报)、token POST 到 `/api/push-token`、点通知跳到 payload 里的 url。
+
+**它刻意不自己弹权限请求。** iOS 用户拒绝一次就很难再要回来,所以要由网站在
+"用户做了某个表明他想要通知的动作"之后调:
+
+```js
+// 下单成功之后、点了"关注"之后、设置页的通知开关里
+AppShell.push.register().then(function (ok) {
+  if (ok) AppShell.toast('已开启通知');
+});
+```
+
+不要在页面加载时调。要改接口地址就改 `app-push.js` 里的 `CONFIG.tokenEndpoint`。
+
+### 3. 服务器侧(你来做,`server/` 下有示例)
+
+```
+server/schema.sql              push_tokens 表
+server/push-token.php.example  接收 token,upsert 进表
+server/send-push.php.example   用 FCM HTTP v1 发送
+```
+
+**这三个文件没在真实环境跑过**,只过了 `php -l`。至少要改两处:怎么从会话里取
+当前用户、怎么连数据库。几个要点:
+
+- 旧的 legacy FCM API **已经废了**,必须用 HTTP v1
+- 示例没用 `google/apiclient`:cPanel 上装 composer 依赖经常不顺,而这件事只需要
+  用 service account 的私钥签个 JWT 换 access token,`openssl_sign` 就够了
+- **service account JSON 绝对不能放在 `public_html` 下面**,放外面,权限 600
+- 同一用户多设备要支持多条 token,所以主键是 token 不是 user_id
+- 发送返回 `UNREGISTERED` / `INVALID_ARGUMENT` 的 token 要**从库里删掉**,
+  不然会越积越多,每次群发都白白浪费请求。示例里已经这么做了
+- 用户退出登录时把那条 token 的 user_id 清掉,不然换人登录同一台设备会收到别人的推送
+
+### 4. 点通知跳转
+
+推送 payload 里带目标页面(`data` 里的值必须是字符串):
+
+```json
+{ "message": { "token": "...", "notification": { "title": "订单已发货", "body": "点开看物流" },
+  "data": { "url": "https://yoursite.com/orders/12345" } } }
+```
+
+`app-push.js` 只跳同站 URL —— 推送内容是从服务器来的,不该让它把用户带到任意站点。
+
+**关于"app 被完全杀掉时点通知"**:核对过 Capacitor 8 的源码,
+`pushNotificationActionPerformed` 两端都是 `retainUntilConsumed` 发的
+(Android `PushNotificationsPlugin.java:86`,iOS `PushNotificationsHandler.swift:79`),
+所以事件会一直留着,等 `app-push.js` 注册上监听再送过来,不会丢。
+不过 **iOS 的 `registration` 事件没有 retain**,所以监听必须在调 `register()`
+之前挂好 —— `app-push.js` 就是这个顺序,别调整。
+
+这一项仍然要专门在真机上测,三种状态都要测(前台、后台、完全退出)。
+
+### 暂时不要推送
+
+`enablePushNotifications` 保持 `false` 就行,这一节整个跳过。
+`configure.mjs` 会把 iOS 那两处(entitlement 和 Xcode target 引用)也清掉,
+所以不会因为少凭据文件而构建失败。
 
 ---
 
@@ -510,9 +601,14 @@ scripts/
   templates/             离线页、兜底页、Xcode scheme 的模板
 website/
   app-shell.js           ← 上传到你的网站根目录(见第二节)
+  app-push.js            ← 要推送才需要,放在 app-shell.js 之后(见第七节)
   .well-known/           ← 也上传到网站根目录,深度链接要用
     assetlinks.json              Android,指纹要手填
     apple-app-site-association   iOS,Team ID 要手填(没有 .json 后缀是故意的)
+server/                  服务器侧示例(PHP,没在真实环境跑过,见第七节)
+  schema.sql             push_tokens 表
+  push-token.php.example 接收 token
+  send-push.php.example  用 FCM HTTP v1 发送
 assets/
   icon.png               1024x1024,换成你的
   splash.png             2732x2732

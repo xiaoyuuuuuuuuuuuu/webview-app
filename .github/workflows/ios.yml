@@ -51,6 +51,18 @@ jobs:
       - name: 装依赖
         run: npm ci
 
+      - name: 还原 GoogleService-Info.plist (没配就跳过)
+        env:
+          GS_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          if [ -n "$GS_PLIST" ]; then
+            printf '%s' "$GS_PLIST" > ios/App/App/GoogleService-Info.plist
+            plutil -lint ios/App/App/GoogleService-Info.plist
+            echo "GoogleService-Info.plist 已写入并通过 plutil 检查"
+          else
+            echo "::notice::没有配 IOS_GOOGLE_SERVICE_INFO_PLIST,跳过。注意:如果 app.config.json 里 enablePushNotifications=true,这个文件已经进了 Xcode target,缺它会让构建失败"
+          fi
+
       - name: 套用 app.config.json + 同步到原生项目
         run: npm run sync:ios
 
@@ -99,6 +111,18 @@ jobs:
 
       - name: 装依赖
         run: npm ci
+
+      - name: 还原 GoogleService-Info.plist (没配就跳过)
+        env:
+          GS_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          if [ -n "$GS_PLIST" ]; then
+            printf '%s' "$GS_PLIST" > ios/App/App/GoogleService-Info.plist
+            plutil -lint ios/App/App/GoogleService-Info.plist
+            echo "GoogleService-Info.plist 已写入并通过 plutil 检查"
+          else
+            echo "::notice::没有配 IOS_GOOGLE_SERVICE_INFO_PLIST,跳过。注意:如果 app.config.json 里 enablePushNotifications=true,这个文件已经进了 Xcode target,缺它会让构建失败"
+          fi
 
       - name: 套用 app.config.json + 同步到原生项目
         run: npm run sync:ios

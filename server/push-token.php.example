@@ -1,0 +1,91 @@
+<?php
+/**
+ * 接收 app 上报的推送 token。
+ *
+ * 放到 public_html 下,路径要和 website/app-push.js 里的
+ * CONFIG.tokenEndpoint 对上(默认 /api/push-token)。
+ *
+ * ⚠ 这是示例,没有在真实环境跑过。至少要改这两处:
+ *     1. 怎么从会话里取当前用户(current_user_id())
+ *     2. 怎么连数据库(db())
+ *   另外按你站点的实际情况加 CSRF 校验和限流。
+ */
+
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'method_not_allowed']);
+    exit;
+}
+
+// ---- 改这里:你站点的会话 ----
+function current_user_id(): ?int
+{
+    // WordPress: $id = get_current_user_id(); return $id ?: null;
+    // Laravel:   return auth()->id();
+    // 自己写的:  session_start(); return $_SESSION['user_id'] ?? null;
+    return null;
+}
+
+// ---- 改这里:你站点的数据库 ----
+function db(): PDO
+{
+    static $pdo = null;
+    if ($pdo === null) {
+        // 凭据别写死在这个文件里,从 public_html 外面的配置读
+        $cfg = require __DIR__ . '/../../config/db.php';   // 示例路径
+        $pdo = new PDO(
+            "mysql:host={$cfg['host']};dbname={$cfg['name']};charset=utf8mb4",
+            $cfg['user'],
+            $cfg['pass'],
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+        );
+    }
+    return $pdo;
+}
+
+$raw  = file_get_contents('php://input');
+$body = json_decode($raw ?: '', true);
+
+$token    = is_array($body) ? ($body['token'] ?? '') : '';
+$platform = is_array($body) ? ($body['platform'] ?? '') : '';
+
+// FCM 的 token 没有固定长度,但格式是 URL-safe 的 base64 片段加冒号
+if (!is_string($token) || !preg_match('/^[A-Za-z0-9_:\-]{64,4096}$/', $token)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'bad_token']);
+    exit;
+}
+if (!in_array($platform, ['ios', 'android'], true)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'bad_platform']);
+    exit;
+}
+
+try {
+    // 没登录也存:先占住这条 token,等用户登录后再绑定。
+    // 不想收匿名 token 就在这里 401 掉。
+    $stmt = db()->prepare(
+        'INSERT INTO push_tokens (token, user_id, platform)
+         VALUES (:token, :user_id, :platform)
+         ON DUPLICATE KEY UPDATE
+            user_id    = VALUES(user_id),
+            platform   = VALUES(platform),
+            updated_at = CURRENT_TIMESTAMP'
+    );
+    $stmt->execute([
+        ':token'    => $token,
+        ':user_id'  => current_user_id(),
+        ':platform' => $platform,
+    ]);
+} catch (Throwable $e) {
+    error_log('[push-token] ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['error' => 'server_error']);
+    exit;
+}
+
+echo json_encode(['ok' => true]);

@@ -184,10 +184,61 @@ if (existsSync(join(root, 'ios'))) {
     s.replace(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/g, `PRODUCT_BUNDLE_IDENTIFIER = ${cfg.appId};`),
   );
 
-  // 深度链接(Universal Links)的 host
-  patch('ios/App/App/App.entitlements', 'iOS Universal Links host', (s) =>
-    s.replace(/(<string>applinks:)[^<]*(<\/string>)/, `$1${siteUrl.host}$2`),
-  );
+  // entitlements 从模板生成:host 跟着 siteUrl,推送那一项跟着 enablePushNotifications。
+  // 多一项 entitlement 就多一条"App ID 要开对应能力"的前提,所以不用的不要留。
+  {
+    const pushBlock = cfg.enablePushNotifications
+      ? '\n\t<!-- 推送。要求 App ID 开 Push Notifications。archive 发布时 Xcode 会把\n' +
+        '\t     development 换成 production,所以这里写 development 是对的。 -->\n' +
+        '\t<key>aps-environment</key>\n\t<string>development</string>\n'
+      : '';
+    const out = readFileSync(join(root, 'scripts/templates/App.entitlements'), 'utf8')
+      .replaceAll('{{SITE_HOST}}', siteUrl.host)
+      .replaceAll('{{PUSH_ENTITLEMENT}}', pushBlock);
+    const abs = join(root, 'ios/App/App/App.entitlements');
+    if (!existsSync(abs) || readFileSync(abs, 'utf8') !== out) {
+      writeFileSync(abs, out);
+      console.log('✓ iOS App.entitlements');
+    }
+  }
+
+  // GoogleService-Info.plist 必须进 Xcode target,光把文件放对位置不够。
+  // 没有 Mac 的人没法在 Xcode 里拖文件,所以这一步必须由脚本来做。
+  // 反过来,推送没开的时候要把它从 target 里拿掉 —— Copy Resources 阶段
+  // 引用一个不存在的文件会让构建直接失败。
+  {
+    const FILE_REF = '7F1A2B3C4D5E6F7081920004';
+    const BUILD_REF = '7F1A2B3C4D5E6F7081920005';
+    patch('ios/App/App.xcodeproj/project.pbxproj', 'iOS GoogleService-Info.plist 入 target', (s) => {
+      const present = s.includes(FILE_REF);
+      if (cfg.enablePushNotifications && !present) {
+        return s
+          .replace(
+            '/* End PBXBuildFile section */',
+            `\t\t${BUILD_REF} /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = ${FILE_REF} /* GoogleService-Info.plist */; };\n/* End PBXBuildFile section */`,
+          )
+          .replace(
+            '/* End PBXFileReference section */',
+            `\t\t${FILE_REF} /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };\n/* End PBXFileReference section */`,
+          )
+          .replace(
+            '\t\t\t\t504EC3131FED79650016851F /* Info.plist */,\n',
+            `\t\t\t\t504EC3131FED79650016851F /* Info.plist */,\n\t\t\t\t${FILE_REF} /* GoogleService-Info.plist */,\n`,
+          )
+          .replace(
+            '\t\t\t\t2FAD9763203C412B000D30F8 /* config.xml in Resources */,\n',
+            `\t\t\t\t2FAD9763203C412B000D30F8 /* config.xml in Resources */,\n\t\t\t\t${BUILD_REF} /* GoogleService-Info.plist in Resources */,\n`,
+          );
+      }
+      if (!cfg.enablePushNotifications && present) {
+        return s
+          .split('\n')
+          .filter((line) => !line.includes(FILE_REF) && !line.includes(BUILD_REF))
+          .join('\n');
+      }
+      return s;
+    });
+  }
 
   // 主题色。iOS 这边没有 colors.xml 那种东西,所以注入到 MainViewController 的
   // themeColorHex 常量 —— 这样主题色仍然只在 app.config.json 配一次。

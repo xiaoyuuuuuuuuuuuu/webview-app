@@ -1,0 +1,182 @@
+<?php
+/**
+ * 用 FCM HTTP v1 API 发推送。旧的 legacy API(那个带 server key 的)已经废了。
+ *
+ * ⚠ 这是示例,没有在真实环境跑过。
+ *
+ * 为什么不用 google/apiclient:cPanel 上装 composer 依赖经常不顺,
+ * 而这件事只需要"用 service account 的私钥签一个 JWT,换 access token",
+ * openssl_sign 就够了,不引任何依赖。
+ *
+ * 准备工作:
+ *   1. Firebase 控制台 → 项目设置 → 服务账号 → 生成新的私钥,下载 JSON
+ *   2. 这个 JSON 里有私钥,【绝对不能放在 public_html 下面】。
+ *      放到 public_html 外面,比如 /home/<用户名>/private/fcm-service-account.json,
+ *      权限设 600
+ *   3. 这个文件【不要】放在 web 可访问的位置,它是给 cron 或后端代码调的
+ *
+ * 用法:
+ *   require 'send-push.php';
+ *   fcm_send_to_user(123, '订单已发货', '点开看物流', 'https://yoursite.com/orders/456');
+ */
+
+declare(strict_types=1);
+
+const FCM_SERVICE_ACCOUNT = '/home/CHANGE_ME/private/fcm-service-account.json';
+const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+
+function fcm_base64url(string $bin): string
+{
+    return rtrim(strtr(base64_encode($bin), '+/', '-_'), '=');
+}
+
+/** 拿 OAuth2 access token。缓存到过期前 5 分钟,别每条推送都换一次 */
+function fcm_access_token(): string
+{
+    static $cached = null;
+    static $expires = 0;
+    if ($cached !== null && time() < $expires - 300) {
+        return $cached;
+    }
+
+    $sa = json_decode((string) file_get_contents(FCM_SERVICE_ACCOUNT), true);
+    if (!is_array($sa) || empty($sa['client_email']) || empty($sa['private_key'])) {
+        throw new RuntimeException('service account JSON 读不出来或缺字段');
+    }
+
+    $now = time();
+    $header = fcm_base64url(json_encode(['alg' => 'RS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES));
+    $claims = fcm_base64url(json_encode([
+        'iss'   => $sa['client_email'],
+        'scope' => FCM_SCOPE,
+        'aud'   => 'https://oauth2.googleapis.com/token',
+        'iat'   => $now,
+        'exp'   => $now + 3600,
+    ], JSON_UNESCAPED_SLASHES));
+
+    $signature = '';
+    if (!openssl_sign("$header.$claims", $signature, $sa['private_key'], OPENSSL_ALGO_SHA256)) {
+        throw new RuntimeException('JWT 签名失败');
+    }
+    $jwt = "$header.$claims." . fcm_base64url($signature);
+
+    [$status, $body] = fcm_http_post(
+        'https://oauth2.googleapis.com/token',
+        http_build_query([
+            'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            'assertion'  => $jwt,
+        ]),
+        ['Content-Type: application/x-www-form-urlencoded']
+    );
+
+    $json = json_decode($body ?: '', true);
+    if ($status !== 200 || empty($json['access_token'])) {
+        throw new RuntimeException("换 access token 失败: HTTP $status $body");
+    }
+
+    $cached  = $json['access_token'];
+    $expires = $now + (int) ($json['expires_in'] ?? 3600);
+    return $cached;
+}
+
+function fcm_http_post(string $url, string $payload, array $headers): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+    $body   = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    if ($body === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        throw new RuntimeException("curl 失败: $err");
+    }
+    curl_close($ch);
+    return [$status, (string) $body];
+}
+
+/**
+ * 给一个 token 发一条。返回 true 表示发出去了;
+ * token 已失效时会从库里删掉并返回 false。
+ */
+function fcm_send_to_token(string $token, string $title, string $body, ?string $url = null): bool
+{
+    $sa = json_decode((string) file_get_contents(FCM_SERVICE_ACCOUNT), true);
+    $projectId = $sa['project_id'] ?? '';
+    if ($projectId === '') {
+        throw new RuntimeException('service account 里没有 project_id');
+    }
+
+    $message = [
+        'token'        => $token,
+        'notification' => ['title' => $title, 'body' => $body],
+    ];
+    if ($url !== null) {
+        // data 里的值必须是字符串。app-push.js 就是读这个 url 做点击跳转的
+        $message['data'] = ['url' => $url];
+    }
+
+    [$status, $resp] = fcm_http_post(
+        "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send",
+        (string) json_encode(['message' => $message], JSON_UNESCAPED_UNICODE),
+        ['Content-Type: application/json', 'Authorization: Bearer ' . fcm_access_token()]
+    );
+
+    if ($status === 200) {
+        return true;
+    }
+
+    $json   = json_decode($resp ?: '', true);
+    $reason = $json['error']['details'][0]['errorCode'] ?? ($json['error']['status'] ?? '');
+
+    // 这两种是"这个 token 永久没用了",不删掉会越积越多,
+    // 而且每次群发都白白浪费一次请求
+    if (in_array($reason, ['UNREGISTERED', 'INVALID_ARGUMENT'], true)) {
+        fcm_delete_token($token);
+        error_log("[fcm] 删掉失效 token ($reason)");
+        return false;
+    }
+
+    error_log("[fcm] 发送失败 HTTP $status: $resp");
+    return false;
+}
+
+/** 发给某个用户的所有设备 */
+function fcm_send_to_user(int $userId, string $title, string $body, ?string $url = null): int
+{
+    $stmt = fcm_db()->prepare('SELECT token FROM push_tokens WHERE user_id = :uid');
+    $stmt->execute([':uid' => $userId]);
+    $sent = 0;
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $token) {
+        if (fcm_send_to_token((string) $token, $title, $body, $url)) {
+            $sent++;
+        }
+    }
+    return $sent;
+}
+
+function fcm_delete_token(string $token): void
+{
+    fcm_db()->prepare('DELETE FROM push_tokens WHERE token = :t')->execute([':t' => $token]);
+}
+
+// ---- 改这里:和 push-token.php 用同一个连接方式 ----
+function fcm_db(): PDO
+{
+    static $pdo = null;
+    if ($pdo === null) {
+        $cfg = require '/home/CHANGE_ME/private/db.php';
+        $pdo = new PDO(
+            "mysql:host={$cfg['host']};dbname={$cfg['name']};charset=utf8mb4",
+            $cfg['user'],
+            $cfg['pass'],
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+        );
+    }
+    return $pdo;
+}

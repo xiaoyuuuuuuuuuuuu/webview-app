@@ -9,6 +9,9 @@
 #       ANDROID_KEY_ALIAS
 #       ANDROID_KEY_PASSWORD
 #     加了之后 release 这个 job 才会跑。
+#   • 要推送,再加一个 secret(内容就是 Firebase 下载的那个文件的全文):
+#       ANDROID_GOOGLE_SERVICES_JSON
+#     没加也能正常出包,只是推送收不到。这个文件带密钥,所以不进 git。
 name: Android
 
 on:
@@ -38,6 +41,18 @@ jobs:
 
       - name: 装依赖
         run: npm ci
+
+      - name: 还原 google-services.json (没配就跳过)
+        env:
+          GS_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GS_JSON" ]; then
+            printf '%s' "$GS_JSON" > android/app/google-services.json
+            node -e "JSON.parse(require('fs').readFileSync('android/app/google-services.json','utf8'))"
+            echo "google-services.json 已写入并通过 JSON 解析"
+          else
+            echo "::notice::没有配 ANDROID_GOOGLE_SERVICES_JSON,跳过 —— 推送收不到,其他功能不受影响"
+          fi
 
       - name: 套用 app.config.json + 同步到原生项目
         run: npm run sync:android
@@ -96,6 +111,19 @@ jobs:
       - name: 装依赖
         if: steps.check.outputs.has_keystore == 'true'
         run: npm ci
+
+      - name: 还原 google-services.json (没配就跳过)
+        if: steps.check.outputs.has_keystore == 'true'
+        env:
+          GS_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GS_JSON" ]; then
+            printf '%s' "$GS_JSON" > android/app/google-services.json
+            node -e "JSON.parse(require('fs').readFileSync('android/app/google-services.json','utf8'))"
+            echo "google-services.json 已写入并通过 JSON 解析"
+          else
+            echo "::notice::没有配 ANDROID_GOOGLE_SERVICES_JSON,跳过 —— 推送收不到,其他功能不受影响"
+          fi
 
       - name: 套用 app.config.json + 同步到原生项目
         if: steps.check.outputs.has_keystore == 'true'

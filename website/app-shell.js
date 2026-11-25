@@ -376,6 +376,7 @@
     toast: toast,
     call: call,
     safeArea: safeArea,
+    isSameSite: isSameSite,   // app-push.js 用它拦住推送里的站外 url
     share: function (opts) { return call('Share', 'share', opts || {}); },
     exit: function () { return call('App', 'exitApp', {}); },
   };

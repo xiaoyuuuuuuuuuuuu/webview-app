@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 深度链接(iOS Universal Links)。applinks: 后面的 host 由
-	     scripts/configure.mjs 从 app.config.json 的 siteUrl 同步,别手改。
+	<!-- 这个文件由 scripts/configure.mjs 从 scripts/templates/App.entitlements 生成,
+	     手改会被下一次 npm run configure 覆盖。改模板或改 app.config.json。
 
-	     注意:带这个 entitlement 的签名构建要求 Apple 开发者后台的 App ID 上
-	     打开 Associated Domains 能力,否则 provisioning profile 对不上、签名会失败。
-	     无证书的编译验证不受影响。 -->
+	     注意:这里每多一项 entitlement,就多一条"签名构建要求 Apple 开发者后台的
+	     App ID 上打开对应能力"的前提。能力没开 → provisioning profile 对不上 →
+	     签名构建失败(TestFlight 那个 job 会挂)。无证书的编译验证不受影响。 -->
+
+	<!-- 深度链接(Universal Links)。要求 App ID 开 Associated Domains。 -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:shop.example.com</string>
