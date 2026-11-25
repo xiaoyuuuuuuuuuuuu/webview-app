@@ -15,7 +15,8 @@
  *   5. target="_blank" 的链接(安卓 WebView 默认点了没反应)
  *   6. iOS 上的文件下载(安卓走原生 DownloadManager,不经过这里)
  *   7. safe area:统一成 --app-safe-* 四个 CSS 变量,给网站 CSS 用
- *   8. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
+ *   8. 深度链接:从外部点进来时跳到对应页面
+ *   9. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
  */
 (function () {
   'use strict';
@@ -62,6 +63,13 @@
     try {
       if (Cap.addListener) Cap.addListener(plugin, event, cb);
     } catch (e) { /* 插件不可用就算了 */ }
+  }
+
+  // 同站判断。外链分流和深度链接两处都用,所以放在这一层。
+  var baseHost = location.hostname.replace(/^www\./, '');
+  function isSameSite(host) {
+    var h = String(host || '').replace(/^www\./, '');
+    return h === baseHost || h.endsWith('.' + baseHost);
   }
 
   // ---------- 样式 ----------
@@ -293,11 +301,6 @@
 
   // ---------- 5. 外链 ----------
   (function () {
-    var baseHost = location.hostname.replace(/^www\./, '');
-    function isSameSite(host) {
-      var h = host.replace(/^www\./, '');
-      return h === baseHost || h.endsWith('.' + baseHost);
-    }
     function isDownloadLink(a, url) {
       if (a.hasAttribute('download')) return true;
       try { return CONFIG.downloadExtensions.test(url.pathname); } catch (err) { return false; }
@@ -346,6 +349,25 @@
         openExternal(url.href);
       }
     }, true);
+  })();
+
+  // ---------- 6. 深度链接 ----------
+  (function () {
+    // 原生两端发这个事件都带 retainUntilConsumed,所以冷启动时事件会一直留着,
+    // 等这个监听注册上再送过来 —— 不用额外查 App.getLaunchUrl()。
+    //
+    // 代价:server.url 模式下冷启动会先加载网站首页,这个监听再把页面跳到目标 URL,
+    // 也就是两次加载。想避免就得在原生侧把 URL 存下来当初始 URL,成本大得多。
+    listen('App', 'appUrlOpen', function (ev) {
+      var raw = ev && ev.url;
+      if (!raw) return;
+      var url;
+      try { url = new URL(raw, location.href); } catch (e) { return; }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+      if (!isSameSite(url.hostname)) return;      // 不是自己的站,不跳
+      if (url.href === location.href) return;     // 已经在这一页了
+      window.location.href = url.href;
+    });
   })();
 
   // 给网站用:window.AppShell.toast('...') 之类

@@ -143,6 +143,11 @@ if (existsSync(join(root, 'android'))) {
     }
   }
 
+  // 深度链接(App Links)的 host
+  patch('android/app/src/main/AndroidManifest.xml', 'Android 深度链接 host', (s) =>
+    s.replace(/(<data android:scheme="https" android:host=")[^"]*(")/, `$1${siteUrl.host}$2`),
+  );
+
   // 主题色
   const colorsPath = 'android/app/src/main/res/values/colors.xml';
   if (!existsSync(join(root, colorsPath))) {
@@ -179,6 +184,11 @@ if (existsSync(join(root, 'ios'))) {
     s.replace(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/g, `PRODUCT_BUNDLE_IDENTIFIER = ${cfg.appId};`),
   );
 
+  // 深度链接(Universal Links)的 host
+  patch('ios/App/App/App.entitlements', 'iOS Universal Links host', (s) =>
+    s.replace(/(<string>applinks:)[^<]*(<\/string>)/, `$1${siteUrl.host}$2`),
+  );
+
   // 主题色。iOS 这边没有 colors.xml 那种东西,所以注入到 MainViewController 的
   // themeColorHex 常量 —— 这样主题色仍然只在 app.config.json 配一次。
   patch('ios/App/App/MainViewController.swift', 'iOS 主题色', (s) =>
@@ -207,6 +217,55 @@ if (existsSync(join(root, 'ios'))) {
     } else {
       console.warn('⚠ 没找到 iOS target UUID,shared scheme 没生成');
     }
+  }
+}
+
+// ---------- 深度链接要放到网站根目录的两个文件 ----------
+// 只在文件不存在、或者里面还是占位符的时候写 —— 指纹和 Team ID 是手填的,
+// 填完之后再跑 configure 不能把它们覆盖掉。
+{
+  const dir = join(root, 'website/.well-known');
+  const PLACEHOLDER = 'REPLACE_WITH';
+  const nl = '\n';
+
+  const files = {
+    'assetlinks.json':
+      JSON.stringify(
+        [
+          {
+            relation: ['delegate_permission/common.handle_all_urls'],
+            target: {
+              namespace: 'android_app',
+              package_name: cfg.appId,
+              sha256_cert_fingerprints: ['REPLACE_WITH_SHA256_CERT_FINGERPRINT'],
+            },
+          },
+        ],
+        null,
+        2,
+      ) + nl,
+    // 故意没有 .json 后缀 —— Apple 要求这个文件就叫这个名字,
+    // 而且响应头必须是 Content-Type: application/json
+    'apple-app-site-association':
+      JSON.stringify(
+        {
+          applinks: {
+            details: [{ appIDs: [`REPLACE_WITH_TEAM_ID.${cfg.appId}`], components: [{ '/': '*' }] }],
+          },
+        },
+        null,
+        2,
+      ) + nl,
+  };
+
+  for (const [name, body] of Object.entries(files)) {
+    const abs = join(dir, name);
+    const existing = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+    if (existing !== null && !existing.includes(PLACEHOLDER)) continue; // 用户已经填过了,别覆盖
+    if (existing === body) continue;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(abs, body);
+    console.log(`✓ website/.well-known/${name}(占位符待填)`);
   }
 }
 

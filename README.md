@@ -66,7 +66,7 @@ npm run assets
 
 ---
 
-## 二、网站那边要加一个文件(重要)
+## 二、网站那边要加的文件(重要)
 
 把 `website/app-shell.js` 上传到你网站根目录,然后在页面模板的 `</body>` 前加一行:
 
@@ -75,6 +75,9 @@ npm run assets
 ```
 
 WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
+
+做完深度链接那一节之后,`website/.well-known/` 下的两个文件也要上传到网站根目录,
+它们不是可选的 —— 没有这两个文件,点链接只会在浏览器里打开。
 
 **这个脚本在普通浏览器里什么都不做**(第一个判断就退出了),所以可以无条件加到所有页面,
 不会影响网站本身,也不用判断 User-Agent。
@@ -90,6 +93,7 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 | `target="_blank"` 链接 | 安卓上点了没反应 |
 | iOS 文件下载 | iOS 上点下载链接没反应(安卓走原生,不受影响) |
 | safe area 变量 | 网站拿不到统一的 `--app-safe-*`,刘海屏要分平台写两套 |
+| 深度链接跳转 | 点链接能开 app,但只会停在首页,不会到目标页面 |
 
 第二条是硬伤,所以这个文件实际上是必须的,不是可选增强。
 
@@ -200,6 +204,88 @@ Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登�
 
 `app-shell.js` 在 `CONFIG.safeArea === 'cover'` 时也会兜底改这个 meta,但脚本是
 `defer` 的,改完会多一次重排,首屏可能抖一下。
+
+### 深度链接(点网站链接直接开 app)
+
+原生侧已经配好了,`app.config.json` 的 `siteUrl` 一改,host 自动同步到两处:
+
+| 平台 | 文件 | 内容 |
+|---|---|---|
+| Android | `android/app/src/main/AndroidManifest.xml` | `<intent-filter android:autoVerify="true">` 里的 `android:host` |
+| iOS | `ios/App/App/App.entitlements` | `applinks:<host>`,并且 `CODE_SIGN_ENTITLEMENTS` 已经指向它 |
+
+网站侧要你做三件事,**少一件就不生效**。
+
+#### 1. 填 Android 的签名指纹
+
+`npm run configure` 会生成 `website/.well-known/assetlinks.json`,里面的
+`REPLACE_WITH_SHA256_CERT_FINGERPRINT` 要换成你 release keystore 的 SHA-256 指纹:
+
+```bash
+keytool -list -v -keystore release.keystore -alias <你的 alias> | grep SHA256
+```
+
+格式是 `AB:CD:EF:...` 那种带冒号的大写十六进制。
+
+> 调试和正式签名的指纹不一样。用 Android Studio 的 debug keystore 装的包要验证通过,
+> 得把 debug 的指纹也加进 `sha256_cert_fingerprints` 数组(可以放多个)。
+> 如果走 Google Play 应用签名,要用 **Play 后台 → 应用完整性** 里那个
+> 「应用签名密钥证书」的指纹,不是你本地 keystore 的。这是最容易搞错的一步。
+
+#### 2. 填 iOS 的 Team ID
+
+`website/.well-known/apple-app-site-association` 里的
+`REPLACE_WITH_TEAM_ID` 换成你的 10 位 Team ID(Apple 开发者后台右上角,
+或 Membership 页面),最终形如 `A1B2C3D4E5.com.yoursite.app`。
+
+填完之后再跑 `npm run configure` **不会**覆盖这两个文件 —— 脚本只在文件不存在、
+或者里面还留着 `REPLACE_WITH` 占位符时才写。
+
+#### 3. 把两个文件放到网站根目录
+
+```
+https://yoursite.com/.well-known/assetlinks.json
+https://yoursite.com/.well-known/apple-app-site-association
+```
+
+硬要求:
+
+- **https,且不能重定向**(301/302 都算失败)。`curl -I` 必须直接 200
+- `apple-app-site-association` **没有** `.json` 后缀,而且响应头必须是
+  `Content-Type: application/json`。cPanel 上一般要在 `.htaccess` 里加一行:
+  ```apache
+  <Files "apple-app-site-association">
+    ForceType application/json
+  </Files>
+  ```
+- **cPanel 上最常见的失败原因是 `.htaccess` 把 `.well-known` 重写掉了**,
+  WordPress 的 rewrite 规则尤其激进。确认规则里有
+  `RewriteCond %{REQUEST_URI} !^/\.well-known/` 之类的放行,或者把
+  `.well-known` 排在重写规则前面
+
+验证:
+
+```bash
+curl -I https://yoursite.com/.well-known/assetlinks.json
+curl -I https://yoursite.com/.well-known/apple-app-site-association
+```
+
+#### iOS 签名的额外一步(容易漏)
+
+`App.entitlements` 里的 `com.apple.developer.associated-domains` 要求
+**Apple 开发者后台的 App ID 上打开 Associated Domains 能力**,否则
+provisioning profile 对不上,**签名构建会失败**(TestFlight 那个 job 会挂)。
+无证书的编译验证不受影响。去 Certificates, Identifiers & Profiles →
+Identifiers → 你的 App ID → 勾上 Associated Domains → 重新生成 profile。
+
+#### 跳转行为
+
+`app-shell.js` 监听 `appUrlOpen`,同站的 URL 直接 `location.href` 过去。
+两端原生发这个事件都带 `retainUntilConsumed`,所以 app 完全没启动时点链接,
+事件会留着等脚本注册上再送过来,不会丢。
+
+代价:`server.url` 模式下冷启动会**先加载网站首页,再跳到目标页**,也就是两次加载。
+想避免得在原生侧把 URL 存下来当初始 URL,成本大得多,目前没做。
 
 ## 三、怎么出安装包
 
@@ -423,7 +509,10 @@ scripts/
   make-placeholder-assets.py   生成占位图标
   templates/             离线页、兜底页、Xcode scheme 的模板
 website/
-  app-shell.js           ← 上传到你的网站(见第二节)
+  app-shell.js           ← 上传到你的网站根目录(见第二节)
+  .well-known/           ← 也上传到网站根目录,深度链接要用
+    assetlinks.json              Android,指纹要手填
+    apple-app-site-association   iOS,Team ID 要手填(没有 .json 后缀是故意的)
 assets/
   icon.png               1024x1024,换成你的
   splash.png             2732x2732

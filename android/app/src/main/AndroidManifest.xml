@@ -18,6 +18,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- 深度链接(Android App Links)。android:host 由 scripts/configure.mjs
+                 从 app.config.json 的 siteUrl 同步,别手改。
+                 autoVerify 要求网站根目录有 /.well-known/assetlinks.json,
+                 https 且不能重定向 —— 见 README 的「深度链接」一节。 -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="shop.example.com" />
+            </intent-filter>
         </activity>
 
         <provider
