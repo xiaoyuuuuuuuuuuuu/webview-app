@@ -189,14 +189,17 @@
     function scrollTop() {
       return window.pageYOffset || root.scrollTop || document.body.scrollTop || 0;
     }
-    // 手指底下是不是一个自己能滚的容器(比如侧边栏、模态框里的列表)
+    // 手指底下有没有一个【已经滚下去了】的容器(侧边栏、模态框里的列表)。
+    //
+    // 刻意只看 scrollTop:原来这里还查了一遍 overflowY 和 scrollHeight,但内层
+    // 判断的仍然是 scrollTop > 0 —— 循环开头已经 return 过了,那一支永远进不去,
+    // 等于每次 touchstart 都在祖先链上白跑一遍 getComputedStyle。
+    //
+    // 语义保持不变(只看 scrollTop)是有道理的:有些站是用内层 div 当主滚动容器的,
+    // 那种站在容器顶部下拉应该能刷新;容器一旦滚下去了就不该再触发刷新。
     function insideScrollable(el) {
       for (var n = el; n && n !== document.body && n !== root; n = n.parentElement) {
         if (n.scrollTop > 0) return true;
-        var oy = getComputedStyle(n).overflowY;
-        if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) {
-          if (n.scrollTop > 0) return true;
-        }
       }
       return false;
     }

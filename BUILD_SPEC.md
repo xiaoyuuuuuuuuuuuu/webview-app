@@ -298,7 +298,7 @@ iOS 本来就没有"下载文件夹"的概念,这对 iOS 用户是符合预期�
 
 ```js
 // app-shell.js 的链接分流那一节里加:
-var DOWNLOAD_EXT = /\.(pdf|xlsx?|docx?|csv|zip|rar|pptx?|apk|dmg|mp4|mp3)$/i;
+var DOWNLOAD_EXT = /\.(pdf|xlsx?|docx?|csv|zip|rar|7z|pptx?|apk|ipa|dmg|mp4|mp3)$/i;
 if (a.hasAttribute('download') || DOWNLOAD_EXT.test(url.pathname)) {
   if (AppShell.platform === 'ios') {
     e.preventDefault();

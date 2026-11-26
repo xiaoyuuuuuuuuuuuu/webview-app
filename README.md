@@ -187,6 +187,12 @@ Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登�
 先用 `native`:现有网站不动一行 CSS 就不会被刘海挡住。等需要「内容铺到
 屏幕边缘」的效果,或者发现 iOS 上固定底栏压在手势条上时,再换 `cover`。
 
+> **`cover` 在 Android 上还有一个前提:系统 WebView 主版本 >= 140。**
+> `SystemBars` 的透传分支要求 `getWebViewMajorVersion() >= 140` 且 viewport 里
+> 确实有 `viewport-fit=cover`(`SystemBars.java:193`)。WebView 更老的机器会走回
+> `native` 那条分支:注入的变量是 0,内容不会被挡(decorView 仍然有 padding),
+> 但「内容铺到屏幕边缘」的效果拿不到。所以 `cover` 要按机型验,别假定它一定生效。
+
 #### 换成 cover 之后,网站侧怎么写
 
 `app-shell.js` 把两个来源合成了一组变量,**任何情况下都能直接用**

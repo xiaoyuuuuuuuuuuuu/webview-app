@@ -42,6 +42,8 @@ var ASSET_LIMIT = 80;
 // 这些路径一律不缓存。电商站把购物车、结算、接口缓存了会出真事故。
 // 边界写成 (/|$|-|?) 是刻意的:/account-manager 这种也要挡住,
 // 但 /apidocs 这种只是前缀撞上的不挡。
+// 注意 ? 这一支目前用不上 —— 下面测的是 URL 的 pathname,永远不含 ?。
+// 留着是防以后有人改成把带查询串的字符串传进来,那时 /cart?x=1 仍然挡得住。
 var NEVER_CACHE = /^\/(api|cart|checkout|account|login|logout|wp-admin|wp-login)(\/|$|-|\?)/i;
 
 // 只缓存这些类型的静态资源
