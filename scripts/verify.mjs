@@ -396,10 +396,15 @@ soft('开启的能力都装了插件', () => {
     '这些开关开着但插件没装: ' + missing.map((n) => `${n} → npm i ${CAPABILITIES[n].npm}`).join('; ');
 });
 
-// 注意用 origin 而不是 siteUrl：siteUrl 可以带路径，但网站侧那几个文件必须在根目录
-// （sw.js 不在根目录拿不到 / 作用域，.well-known 也只认根目录）。
-soft('app-shell.js 已上传到网站', () =>
-  '脚本查不到这个 —— 自己确认 ' + new URL(cfg.siteUrl).origin + '/app-shell.js 能打开');
+// 取 siteUrl 所在的【目录】，不是把 siteUrl 直接拼上文件名（siteUrl 可以带路径，
+// 拼出来会是个不存在的地址），也不是 origin（站点在子路径时 origin 指不到文件）。
+//   https://shop.example.com                  -> https://shop.example.com/app-shell.js
+//   https://u.github.io/repo/index.html       -> https://u.github.io/repo/app-shell.js
+soft('app-shell.js 已上传到网站', () => {
+  const u = new URL(cfg.siteUrl);
+  const dir = u.origin + u.pathname.replace(/[^/]*$/, '');
+  return '脚本查不到这个 —— 自己确认 ' + dir + 'app-shell.js 能打开';
+});
 
 // ---------------- 结果 ----------------
 console.log(`\n${'─'.repeat(52)}`);
