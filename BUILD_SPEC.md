@@ -507,7 +507,7 @@ Capacitor.addListener('PushNotifications', 'pushNotificationActionPerformed', (a
 
 | 功能 | 实现成本 | 说明 |
 |---|---|---|
-| 扫码 | 中 | 装 `@capacitor-mlkit/barcode-scanning`。零售/会员场景很自然。**但它 iOS 上用不了(没 Package.swift,SPM 不收),而且 Android 包涨 13MB** —— 本项目实测后没做,详见 README「为什么没开扫码」 |
+| 扫码 | 中 | 装 `@capacitor-mlkit/barcode-scanning`。零售/会员场景很自然。**但它 iOS 上用不了(没 Package.swift,SPM 不收),而且它一个人就让 Android debug APK 涨 9.2 MiB** —— 本项目实测后没做,详见 README「为什么没开扫码」 |
 | 生物识别登录 | 中 | 社区插件 + 网站侧存一个长效 token。体验提升明显 |
 | 离线阅读 | 中 | 见 P2。审核员会试飞行模式 |
 | 保存到相册 | 低 | 图片类网站适合 |
