@@ -18,7 +18,10 @@ name: Pages (测试站)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # 注意:workflow_dispatch 只有当这个文件已经在【默认分支】上时才能用
+    # (否则 gh workflow run 报 404)。合进 main 之前靠 push 触发,
+    # 所以开发分支也列在这里;合入 main 之后可以把它删掉。
+    branches: [main, 'claude/**']
     paths:
       - 'test-site/**'
       - 'website/**'
