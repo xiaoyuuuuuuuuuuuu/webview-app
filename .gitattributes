@@ -1,6 +1,10 @@
 # 统一换行符。gradlew 和 .sh 在 Linux runner 上必须是 LF,
 # 否则 CI 会报 "bad interpreter: No such file or directory"。
-* text=auto
+#
+# eol=lf 是连【工作区】也保持 LF,不只是仓库里。原因:configure.mjs 的受管区块
+# (CAPABILITIES:BEGIN/END)靠以 \n 开头的标记定位,而 Windows 上 core.autocrlf=true
+# 会把文件签出成 CRLF —— 标记找不到,区块就会被重复注入。
+* text=auto eol=lf
 
 android/gradlew text eol=lf
 *.sh           text eol=lf

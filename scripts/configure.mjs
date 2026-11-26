@@ -90,17 +90,23 @@ function patch(path, label, fn) {
  * Info.plist 里留一条没用的用途字符串,Apple 审核就会问这个权限干什么用。
  */
 function managedBlock(source, beginMark, endMark, body, closeTag) {
-  const b = source.indexOf(beginMark);
-  const e = source.indexOf(endMark);
+  // 先统一成 LF 再找标记。标记是以 \n 开头的,而 Windows 上 git 可能按
+  // core.autocrlf=true 把文件签出成 CRLF —— 那样 indexOf 找不到现有区块,
+  // 就会走下面的"追加"分支,每跑一次 npm run sync 多注入一份。
+  // Info.plist 里重复的键比 AndroidManifest 里重复的权限危险得多。
+  // (.gitattributes 里也加了 eol=lf,这里是双保险:换到别人机器上也不复现)
+  const src = source.replace(/\r\n/g, '\n');
+  const b = src.indexOf(beginMark);
+  const e = src.indexOf(endMark);
   if (b !== -1 && e !== -1 && e > b) {
-    const head = source.slice(0, b);
-    const tail = source.slice(e + endMark.length);
+    const head = src.slice(0, b);
+    const tail = src.slice(e + endMark.length);
     return body ? head + beginMark + body + endMark + tail : head + tail;
   }
-  if (!body) return source;
-  const at = source.lastIndexOf(closeTag);
-  if (at === -1) return source;
-  return source.slice(0, at) + beginMark + body + endMark + source.slice(at);
+  if (!body) return src;
+  const at = src.lastIndexOf(closeTag);
+  if (at === -1) return src;
+  return src.slice(0, at) + beginMark + body + endMark + src.slice(at);
 }
 
 const CAP_BEGIN_ANDROID =
