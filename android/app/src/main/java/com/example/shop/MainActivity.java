@@ -99,8 +99,11 @@ public class MainActivity extends BridgeActivity {
         checkForRequiredUpdate();
     }
 
+    // BridgeActivity.onDestroy() 是 public,Java 不允许重写时收窄可见性,
+    // 写成 protected 会编译失败(attempting to assign weaker access privileges)。
+    // 注意 onCreate 在 BridgeActivity 里是 protected,所以上面那个保持 protected 是对的。
     @Override
-    protected void onDestroy() {
+    public void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (downloadReceiver != null) {
             unregisterReceiver(downloadReceiver);
