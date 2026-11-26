@@ -63,6 +63,17 @@ const config: CapacitorConfig = {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
+    LocalNotifications: {
+      // 不配这一项的话,插件兜底用 android.R.drawable.ic_dialog_info ——
+      // 系统那个蓝色感叹号,在状态栏里看着像出错了。实测读的是
+      // LocalNotificationManager.getDefaultSmallIcon()。
+      //
+      // 通知小图标必须是【纯白剪影 + 透明背景】,系统只取 alpha 通道然后自己上色;
+      // 直接拿 app 图标当小图标会变成一个白方块。所以这里用一个单独的矢量图
+      // res/drawable/ic_stat_notify.xml(一个铃铛),换成你自己的标志剪影更好。
+      smallIcon: 'ic_stat_notify',
+      iconColor: appConfig.themeColor,
+    },
     // Capacitor 8 自带的 SystemBars 插件(@capacitor/android 核心,自动注册)负责
     // Android 的 edge-to-edge:它在 decorView 上挂 OnApplyWindowInsetsListener,
     // 并且永远往页面注入 --safe-area-inset-* 四个 CSS 变量。

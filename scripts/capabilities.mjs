@@ -15,6 +15,17 @@
  *   每开一个能力就是在扩大 XSS 的影响面,而这里几个恰好是摄像头、相册、生物识别
  *   这类高价值目标。见 BUILD_SPEC.md 第 1.3 节和 README 的「安全」一节。
  *
+ * 四个字段的分工:
+ *   ios         —— 要往 Info.plist 写的用途字符串
+ *   android     —— 要往 AndroidManifest 加的权限
+ *   androidMeta —— 要往 <application> 里加的 <meta-data>
+ *   shellApi    —— 这个能力在 website/app-capabilities.js 里对应的 AppShell 成员。
+ *                 verify 用它检查「开关开了但网站侧没接口」—— 扫码那次就差这一条:
+ *                 开关、权限、插件全对,网站却没有能调的东西,而且没人会发现。
+ *   androidRemove —— 【要从合并后的 Manifest 里【撤掉】的权限】。插件自己的库 manifest
+ *                 声明的权限,Gradle 会无条件合并进 app,我们的开关管不到它。要撤只能
+ *                 用 tools:node="remove"。目前只有 local-notifications 需要,原因见那一项。
+ *
  * ⚠ `plugin` 是插件在 Capacitor 里注册的名字,网站侧 `AppShell.has()` 靠它判断
  *   这个能力到底有没有编进 app(走 Capacitor.isPluginAvailable,读的是原生注入的
  *   PluginHeaders,所以反映的是真实情况,不是配置文件说了什么)。
@@ -38,6 +49,10 @@ export const CAPABILITIES = {
     // 零售场景常常在店里网不好,第一次扫码就失败。
     // 注意 meta-data 必须在 <application> 里面,所以它走和权限不同的注入点。
     androidMeta: [{ name: 'com.google.mlkit.vision.DEPENDENCIES', value: 'barcode_ui' }],
+    // 注意:本项目关着扫码,所以 app-capabilities.js 里【没有】scan()。
+    // 要重新打开,除了开关和插件,还得从 commit 3634166 把 scan() 取回来 ——
+    // 不取回的话 verify 的「网站侧有接口」这一条会直接报出来。
+    shellApi: ['scan'],
   },
 
   biometric: {
@@ -53,6 +68,7 @@ export const CAPABILITIES = {
     },
     android: [],
     androidMeta: [],
+    shellApi: ['biometric'],
   },
 
   saveToAlbum: {
@@ -67,15 +83,69 @@ export const CAPABILITIES = {
     // READ_MEDIA_IMAGES 那些只有"相册类 app 要读全部相册"才需要。
     android: [],
     androidMeta: [],
+    shellApi: ['saveImage'],
   },
 
   localNotifications: {
     plugin: 'LocalNotifications',
     npm: '@capacitor/local-notifications',
+    // iOS 不需要用途字符串 —— 通知权限是运行时问的,不走 Info.plist。
     ios: {},
     // POST_NOTIFICATIONS 已经为了下载进度通知写进 Manifest 了,这里不用再加。
     android: [],
     androidMeta: [],
+    // ⚠ 这个插件【自己的库 manifest】声明了四个权限,Gradle 合并进 app,开关管不到:
+    //     POST_NOTIFICATIONS     —— 我们本来就有
+    //     RECEIVE_BOOT_COMPLETED —— 重启后恢复已排期的通知,普通权限,留着
+    //     WAKE_LOCK              —— 同上,普通权限,留着
+    //     SCHEDULE_EXACT_ALARM   —— 必须撤掉,见下
+    //
+    // SCHEDULE_EXACT_ALARM 为什么必须撤:Android 官方文档写得很直接 —— 不符合政策的 app
+    // 【没法带着这个权限发版】(要有闹钟/日历那种以精确定时为核心功能的场景才算符合)。
+    // 一个商城 app 不符合。而且 Android 14+ 它默认就是拒绝的,留着也换不来精确定时。
+    //
+    // 撤掉安全吗?安全。插件的 setExactIfPossible() 先问 canScheduleExactAlarms(),
+    // 不允许就退回 alarmManager.set()(非精确),只打一条 warn 日志,不抛异常 ——
+    // 实测读的是 LocalNotificationManager.kt:350-375。购物车提醒这类场景差几分钟无所谓。
+    // 另外 isExactNotification 默认是 true,所以网站侧调用时显式传 false,免得每次都刷警告。
+    androidRemove: ['android.permission.SCHEDULE_EXACT_ALARM'],
+    shellApi: ['notify', 'cancelNotify'],
+  },
+
+  clipboard: {
+    plugin: 'Clipboard',
+    npm: '@capacitor/clipboard',
+    // 写剪贴板不需要任何权限、任何用途字符串,两端都是。
+    ios: {},
+    android: [],
+    androidMeta: [],
+    // ⚠ 这个插件【有】read(),但 app-capabilities.js 【刻意只暴露写】。
+    // 读剪贴板能拿到用户在别处复制的密码和验证码,是真的隐私风险;
+    // 而且 iOS 会弹"xxx 粘贴自 yyy"的提示,体验也差。见 README 的「安全」一节。
+    shellApi: ['copy'],
+  },
+
+  deviceId: {
+    plugin: 'Device',
+    npm: '@capacitor/device',
+    ios: {},
+    android: [],
+    androidMeta: [],
+    // ⚠ getId() 给的不是永久标识:Android 上卸载重装会变,iOS 上
+    // identifierForVendor 在"同一厂商的 app 全部卸载后"也会变。
+    // 别拿它当账号用,也别拿它做跨 app 追踪。要写进 Play 的 Data safety。
+    shellApi: ['deviceId'],
+  },
+
+  inAppReview: {
+    plugin: 'InAppReview',
+    npm: '@capacitor-community/in-app-review',
+    ios: {},
+    android: [],
+    androidMeta: [],
+    // ⚠ 两端系统都有频率限制,所以"调了但什么都没弹"是正常结果,不是错误。
+    // 代码不能因为没弹出来就报错或重试。
+    shellApi: ['requestReview'],
   },
 };
 

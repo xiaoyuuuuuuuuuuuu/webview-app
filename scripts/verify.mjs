@@ -145,6 +145,46 @@ if (has('android')) {
     return bad.length === 0 || bad.join(';');
   });
 
+  // 插件自己的库 manifest 声明的权限,Gradle 会无条件合并进 app —— 我们的开关管不到,
+  // 只能用 tools:node="remove" 撤。漏了这一步最严重的后果不是运行时出错,而是
+  // 带着 SCHEDULE_EXACT_ALARM 根本【没法在 Google Play 发版】(除非符合精确定时政策)。
+  check('该撤的权限都撤了', () => {
+    const manifest = read('android/app/src/main/AndroidManifest.xml');
+    const active = enabledCapabilities(cfg);
+    const bad = [];
+    for (const [name, def] of Object.entries(CAPABILITIES)) {
+      const on = active.includes(name);
+      for (const perm of def.androidRemove || []) {
+        const line = `<uses-permission android:name="${perm}" tools:node="remove" />`;
+        const present = manifest.includes(line);
+        if (on && !present) bad.push(`${name} 开着但没撤 ${perm}(先跑 npm run configure)`);
+        if (!on && present) bad.push(`${name} 关着但还留着撤 ${perm} 的那一行`);
+      }
+    }
+    return bad.length === 0 || bad.join(';');
+  });
+
+  // tools:node="remove" 没有这个命名空间就是编译错误,不是静默失效
+  check('tools 命名空间跟着开关走', () => {
+    const manifest = read('android/app/src/main/AndroidManifest.xml');
+    const active = enabledCapabilities(cfg);
+    const needed = active.some((n) => (CAPABILITIES[n].androidRemove || []).length);
+    const present = manifest.includes('xmlns:tools="http://schemas.android.com/tools"');
+    if (needed && !present) return '要用 tools:node="remove" 但 <manifest> 上没有 xmlns:tools → Gradle 会报编译错误';
+    if (!needed && present) return '没有任何能力需要撤权限,但 xmlns:tools 还留着(关掉应该清干净)';
+    return true;
+  });
+
+  // 通知小图标必须是白色剪影;不配的话插件兜底用系统那个蓝色感叹号
+  soft('本地通知有自己的小图标', () => {
+    if (!enabledCapabilities(cfg).includes('localNotifications')) return true;
+    if (!has('android/app/src/main/res/drawable/ic_stat_notify.xml')) {
+      return 'drawable/ic_stat_notify.xml 不在 → 插件会兜底用 android.R.drawable.ic_dialog_info(系统蓝色感叹号)';
+    }
+    return read('capacitor.config.ts').includes("smallIcon: 'ic_stat_notify'")
+      || 'capacitor.config.ts 的 LocalNotifications.smallIcon 没指向 ic_stat_notify';
+  });
+
   check('targetSdk >= 36 (Google Play 要求)', () => {
     const m = read('android/variables.gradle').match(/targetSdkVersion\s*=\s*(\d+)/);
     return Number(m?.[1]) >= 36 || `现在是 ${m?.[1]}`;
@@ -315,12 +355,34 @@ soft('开启的能力在 iOS 上也可用', () => {
 });
 
 check('开了能力就要有 app-capabilities.js', () => {
-  const active = enabledCapabilities(cfg).filter((n) => n !== 'localNotifications');
+  const active = enabledCapabilities(cfg);
   if (!active.length) return true;
   return (
     has('website/app-capabilities.js') ||
     `开了 ${active.join(' / ')} 但 website/app-capabilities.js 不在 —— 网站侧没有接口可调`
   );
+});
+
+// 这一条补的是扫码那次暴露的漏洞:开关、权限、插件全对,网站侧却没有能调的东西,
+// 而且所有其他检查都是绿的。现在登记表的 shellApi 字段说了该有什么,机器来对。
+check('开了的能力在网站侧都有接口', () => {
+  const active = enabledCapabilities(cfg);
+  if (!active.length) return true;
+  if (!has('website/app-capabilities.js')) return 'app-capabilities.js 不在';
+  const js = read('website/app-capabilities.js');
+  const bad = [];
+  for (const name of active) {
+    const api = CAPABILITIES[name].shellApi || [];
+    if (!api.length) {
+      bad.push(`${name}: 登记表里没写 shellApi,无法检查`);
+      continue;
+    }
+    const absent = api.filter((member) => !js.includes(`AppShell.${member} =`));
+    if (absent.length) {
+      bad.push(`${name}: app-capabilities.js 没有导出 ${absent.map((m) => 'AppShell.' + m).join(' / ')}`);
+    }
+  }
+  return bad.length === 0 || bad.join(';');
 });
 
 // 开关开了但插件没装:configure 不会替你装,所以这里提醒一下

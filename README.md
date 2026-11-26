@@ -133,6 +133,14 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 | `AppShell.toast(text, ms)` | 提示条 |
 | `AppShell.share({ title, url })` | 调起系统分享 |
 | `AppShell.safeArea()` | 四个方向 inset 的真实像素值 |
+| `AppShell.biometric.verify(o)` | 弹生物识别。**不是登录**,见下 |
+| `AppShell.biometric.check()` | 这台设备能不能用生物识别 |
+| `AppShell.saveImage(path, o)` | 存一张图到相册 |
+| `AppShell.notify(o)` | 弹本地通知,resolve 出通知 id。**不是推送** |
+| `AppShell.cancelNotify(id)` | 撤掉一条还没弹的通知 |
+| `AppShell.copy(text)` | 复制到剪贴板(**只有写,没有读**) |
+| `AppShell.deviceId()` | 设备标识。**不是永久的,也不是账号** |
+| `AppShell.requestReview()` | 请求系统弹评分窗。**弹不出来是正常的** |
 | `AppShell.offline.clear()` | 清 SW 缓存并注销,排查「页面不更新」 |
 | `AppShell.push.register()` | 请求通知权限并注册(要先加载 `app-push.js`) |
 | `AppShell.exit()` | 退出 app(Android) |
@@ -188,14 +196,23 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
   "scanner": false,
   "biometric": false,
   "saveToAlbum": false,
-  "localNotifications": false
+  "localNotifications": false,
+  "clipboard": false,
+  "deviceId": false,
+  "inAppReview": false
 }
 ```
 
-开关做两件事,**它不装插件**:
+开关做三件事,**它不装插件**:
 
 1. 开的时候往 `AndroidManifest.xml` 和 `Info.plist` 写权限和用途字符串
-2. 关的时候清干净 —— 关回去之后两个文件**字节级回到原样**(和 `enablePushNotifications` 同一个机制)
+2. 需要的时候**把插件自己塞进来的权限撤掉**(`tools:node="remove"`,目前只有本地通知要,原因见下)
+3. 关的时候清干净 —— 关回去之后两个文件**字节级回到原样**(和 `enablePushNotifications` 同一个机制)
+
+> 有三个开关(`clipboard` / `deviceId` / `inAppReview`)什么权限都不声明,
+> 因为这三个插件两端都不需要权限。那它们还要开关干什么?一是记录意图,
+> 二是 `npm run verify` 会盯住「插件装了但开关没开」这个危险状态 ——
+> 插件只要装了就编进 app,XSS 的影响面就已经扩大了。
 
 插件要自己 `npm install`,包名在 `scripts/capabilities.mjs` 里。
 开关开了但插件没装,`npm run verify` 会告诉你装哪个。
@@ -205,7 +222,10 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 | `scanner` | `@capacitor-mlkit/barcode-scanning` | Android `CAMERA` + iOS `NSCameraUsageDescription`。**本项目没开**,原因见下面「为什么没开扫码」 |
 | `biometric` | `@aparajita/capacitor-biometric-auth` | iOS `NSFaceIDUsageDescription`(少了是直接崩,不是报错) |
 | `saveToAlbum` | `@capacitor-community/media` | iOS `NSPhotoLibraryAddUsageDescription`(只写不读) |
-| `localNotifications` | `@capacitor/local-notifications` | 复用已有的 `POST_NOTIFICATIONS` |
+| `localNotifications` | `@capacitor/local-notifications` | 复用已有的 `POST_NOTIFICATIONS`,**并撤掉插件塞进来的 `SCHEDULE_EXACT_ALARM`**(见下) |
+| `clipboard` | `@capacitor/clipboard` | 什么都不声明(写剪贴板不需要权限) |
+| `deviceId` | `@capacitor/device` | 什么都不声明。但**要写进 Play 的 Data safety** |
+| `inAppReview` | `@capacitor-community/in-app-review` | 什么都不声明 |
 
 > 生物识别**不要用 `capacitor-native-biometric`** —— 它依赖 `@capacitor/core ^3.4.3`,
 > 最后一次发布是 2023-06,停在 Capacitor 3 时代。
@@ -217,7 +237,7 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 Android 多一个权限,Google Play 的 Data safety 表格就要多填一条。开关把「声明权限」和
 「真的用到」绑在一起,两边都省事。
 
-### 两个能力怎么用
+### 这些能力怎么用
 
 开关打开、插件装好之后,把 `app-capabilities.js` 也传到网站,放在 `app-shell.js` 之后:
 
@@ -239,6 +259,29 @@ AppShell.biometric.verify({ reason: '验证身份后查看订单' })
 // 保存到相册
 AppShell.saveImage(couponImageUrl, { fileName: 'coupon' })
   .then(function () { AppShell.toast('已保存到相册'); });
+
+// 本地通知 —— 立刻弹,或者到点弹
+if (AppShell.has('localNotifications')) {
+  AppShell.notify({ title: '订单已发货', body: '点进来看物流' })
+    .catch(function (e) {
+      if (e.code === 'denied') { /* 用户不要通知,静默接受,别反复问 */ }
+    });
+
+  // 30 分钟后提醒回来结账;传同一个 id 再调一次就是替换,不会堆一串
+  AppShell.notify({
+    id: 9001,
+    title: '购物车还有东西',
+    body: '要不要回来看看?',
+    at: new Date(Date.now() + 30 * 60 * 1000),
+  });
+  AppShell.cancelNotify(9001);   // 用户真的结账了,撤掉提醒
+}
+
+// 复制订单号 / 优惠码
+AppShell.copy(orderNo).then(function () { AppShell.toast('订单号已复制'); });
+
+// 评分弹窗 —— 在用户刚顺利完成一件事之后调
+AppShell.requestReview();   // 没弹出来是正常的,别重试、别提示
 ```
 
 几件必须知道的事:
@@ -247,6 +290,46 @@ AppShell.saveImage(couponImageUrl, { fileName: 'coupon' })
 |---|---|
 | **生物识别不是登录** | 它只证明「手机的主人在场」,不证明身份。真正的登录态必须服务器签发、绑设备、可吊销、有有效期。注入的脚本也能触发一次解锁,所以**服务器侧必须二次校验** |
 | **相册在 Android 要指定相册** | `savePhoto` 的 `albumIdentifier` 在 Android 上必填。`app-capabilities.js` 会按 `CONFIG.albumName` 自动找/建一个,**记得把它改成你的 app 名** |
+| **本地通知不是推送** | 它是这台手机自己排的,服务器发不了。服务器要主动找用户得走推送(`app-push.js`)。它的用处是「app 里发生了什么,过一会儿提醒用户回来」,不需要任何服务器 |
+| **通知频道的名字用户看得见** | 插件兜底频道就叫「Default」,会出现在系统设置里。`app-capabilities.js` 的 `CONFIG.notifyChannel` 自己建了一个,**改成你的业务分类**(「订单状态」「优惠提醒」)。频道建好后名字不能再用代码改,要改得连 `id` 一起换 |
+| **剪贴板只有写** | 插件有 `read()`,但**刻意没暴露**。读剪贴板能拿到用户在别处复制的密码和验证码,而 WebView 里的 XSS 就能调它;iOS 还会弹「xxx 粘贴自 yyy」。要读就让用户自己粘贴 |
+| **设备 ID 不是永久的** | Android 卸载重装会变,iOS 上同厂商 app 全部卸载后也会变。能当设备偏好、风控信号,**不能替代登录**,也不能做跨 app 追踪。用了要写进 Play 的 Data safety |
+| **评分弹窗弹不出来是正常的** | 两端系统都有频率限制(iOS 一年最多 3 次),而且 API 不告诉你弹没弹。不要重试、不要提示用户、不要据此判断用户评没评。别在用户刚失败完一单时调 |
+
+#### 本地通知:一个会挡住发版的权限
+
+`@capacitor/local-notifications` 在**它自己的库 manifest** 里声明了四个权限,
+Gradle 合并进 app 的时候**无条件**带上,我们的开关管不到别人的 manifest:
+
+| 权限 | 怎么处理 |
+|---|---|
+| `POST_NOTIFICATIONS` | 本来就有(下载进度通知要用) |
+| `RECEIVE_BOOT_COMPLETED` | **留着**。重启后恢复已排期的通知要用,普通权限 |
+| `WAKE_LOCK` | **留着**。同上,普通权限 |
+| `SCHEDULE_EXACT_ALARM` | **撤掉** |
+
+**为什么必须撤 `SCHEDULE_EXACT_ALARM`**:Android 官方文档写得很直接 —— 不符合政策的 app
+**没法带着这个权限发版**。要符合,得有闹钟、日历那种以「精确到分秒」为核心功能的场景;
+一个商城 app 不符合。而且 Android 14+ 这个权限默认就是拒绝的,留着也换不来精确定时,
+净剩一个发版风险。
+
+**撤掉会不会把通知弄坏?不会。** 插件的 `setExactIfPossible()` 先问
+`canScheduleExactAlarms()`,不允许就退回 `alarmManager.set()`(非精确),只打一条
+warn 日志,不抛异常 —— 这是读 `LocalNotificationManager.kt:350-375` 确认的。
+购物车提醒这类场景差几分钟无所谓。
+
+`app-capabilities.js` 调用时还会显式传 `isExactNotification: false`
+(这个选项默认是 `true`),免得每弹一条就刷一次警告日志。
+
+撤的办法是 `tools:node="remove"`,`configure.mjs` 连 `xmlns:tools` 命名空间一起管 ——
+**所以关掉开关之后 Manifest 还是字节级回到原样**(实测 `git diff` 为空)。
+`npm run verify` 两个方向都会检查。
+
+> `npm run verify` 还会提醒**通知小图标**:不配的话插件兜底用
+> `android.R.drawable.ic_dialog_info`,就是系统那个蓝色感叹号,在状态栏里像出错了。
+> 本项目放了一个 `res/drawable/ic_stat_notify.xml`(一个铃铛)。
+> 小图标必须是**纯白剪影 + 透明背景**,系统只取 alpha 通道然后自己上色 ——
+> 直接拿 app 图标当小图标会变成一个白方块。换成你自己标志的剪影更好。
 
 #### 为什么没开扫码
 

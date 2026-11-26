@@ -207,13 +207,33 @@ if (existsSync(join(root, 'android'))) {
   // 能力开关要的权限。多一个权限 = Google Play 的 Data safety 要多填一条,
   // 所以关掉的能力必须把权限也撤掉。
   patch('android/app/src/main/AndroidManifest.xml', 'Android 能力权限', (s) => {
-    const perms = activeCapabilities.flatMap((name) =>
-      CAPABILITIES[name].android.map(
+    const perms = activeCapabilities.flatMap((name) => [
+      // 要加的
+      ...CAPABILITIES[name].android.map(
         (perm) =>
           '\n    <!-- capabilities.' + name + ' -->\n    <uses-permission android:name="' + perm + '" />',
       ),
-    );
+      // 要撤的:插件自己的库 manifest 声明、Gradle 无条件合并进来的权限。
+      // tools:node="remove" 是唯一的撤法 —— 我们的开关管不到别人的 manifest。
+      ...(CAPABILITIES[name].androidRemove || []).map(
+        (perm) =>
+          '\n    <!-- capabilities.' + name + ' 撤掉插件库 manifest 合并进来的这一条,原因见 scripts/capabilities.mjs -->' +
+          '\n    <uses-permission android:name="' + perm + '" tools:node="remove" />',
+      ),
+    ]);
     return managedBlock(s, CAP_BEGIN_ANDROID, CAP_END_ANDROID, perms.join(''), '\n</manifest>');
+  });
+
+  // tools: 这个命名空间只有 tools:node="remove" 才用得上,所以跟着开关加/撤 ——
+  // 这样把所有能力关回去之后,Manifest 仍然字节级回到原样。
+  patch('android/app/src/main/AndroidManifest.xml', 'Android tools 命名空间', (s) => {
+    const needed = activeCapabilities.some((name) => (CAPABILITIES[name].androidRemove || []).length);
+    const attr = ' xmlns:tools="http://schemas.android.com/tools"';
+    const anchor = '<manifest xmlns:android="http://schemas.android.com/apk/res/android"';
+    const present = s.includes(attr);
+    if (needed && !present) return s.replace(anchor, anchor + attr);
+    if (!needed && present) return s.replace(attr, '');
+    return s;
   });
 
   // 能力要的 <meta-data>。和权限分开,因为它必须在 <application> 内部。

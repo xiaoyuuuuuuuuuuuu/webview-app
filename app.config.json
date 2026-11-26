@@ -25,6 +25,9 @@
     "scanner": false,
     "biometric": true,
     "saveToAlbum": true,
-    "localNotifications": false
+    "localNotifications": true,
+    "clipboard": true,
+    "deviceId": true,
+    "inAppReview": true
   }
 }

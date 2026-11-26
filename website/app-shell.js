@@ -50,7 +50,7 @@
 
   // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
   // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
-  var SHELL_VERSION = '1.1.0';
+  var SHELL_VERSION = '1.2.0';
 
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
@@ -117,6 +117,9 @@
     biometric: 'BiometricAuthNative',   // 实测的注册名,不是 BiometricAuth
     saveToAlbum: 'Media',
     localNotifications: 'LocalNotifications',
+    clipboard: 'Clipboard',
+    deviceId: 'Device',
+    inAppReview: 'InAppReview',
     // 壳一直都装的 7 个,列出来是为了 has() 对它们也能回答
     share: 'Share',
     browser: 'Browser',
