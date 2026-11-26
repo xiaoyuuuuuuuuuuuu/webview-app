@@ -12,7 +12,7 @@
 	<!-- 深度链接(Universal Links)。要求 App ID 开 Associated Domains。 -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:shop.example.com</string>
+		<string>applinks:en.wikipedia.org</string>
 	</array>
 </dict>
 </plist>

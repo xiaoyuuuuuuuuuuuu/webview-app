@@ -16,7 +16,7 @@
 //
 // 升级 Capacitor 后要重新验证:BridgeWebChromeClient 是否开始自己处理
 // onProgressChanged,以及 capacitor_bridge_layout_main.xml 的根布局有没有换。
-package com.example.shop;
+package io.github.xiaoyuuuuuuuuuuuu.testing;
 
 import android.Manifest;
 import android.app.DownloadManager;

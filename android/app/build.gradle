@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.example.shop"
+    namespace = "io.github.xiaoyuuuuuuuuuuuu.testing"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.example.shop"
+        applicationId "io.github.xiaoyuuuuuuuuuuuu.testing"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI 里用环境变量覆盖,不用每次改文件:

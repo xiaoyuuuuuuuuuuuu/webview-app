@@ -32,7 +32,7 @@
   var CONFIG = {
     // Android 保存图片必须指定相册,所以壳会按这个名字找/建一个。
     // iOS 不需要(不指定相册时走 add-only 权限,正好匹配我们声明的用途字符串)。
-    albumName: 'My App',
+    albumName: 'testing',
     // 生物识别弹窗上的文案
     biometricReason: '验证身份后继续',
     biometricAndroidTitle: '身份验证',

@@ -1,9 +1,9 @@
 {
   "_comment": "===== 只需要改这个文件 =====",
 
-  "siteUrl": "https://shop.example.com",
-  "appName": "My App",
-  "appId": "com.example.shop",
+  "siteUrl": "https://en.wikipedia.org/wiki/Halo_(franchise)",
+  "appName": "testing",
+  "appId": "io.github.xiaoyuuuuuuuuuuuu.testing",
 
   "extraAllowedHosts": [],
 

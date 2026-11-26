@@ -396,7 +396,10 @@ soft('开启的能力都装了插件', () => {
     '这些开关开着但插件没装: ' + missing.map((n) => `${n} → npm i ${CAPABILITIES[n].npm}`).join('; ');
 });
 
-soft('app-shell.js 已上传到网站', () => '脚本查不到这个 —— 自己确认 ' + cfg.siteUrl + '/app-shell.js 能打开');
+// 注意用 origin 而不是 siteUrl：siteUrl 可以带路径，但网站侧那几个文件必须在根目录
+// （sw.js 不在根目录拿不到 / 作用域，.well-known 也只认根目录）。
+soft('app-shell.js 已上传到网站', () =>
+  '脚本查不到这个 —— 自己确认 ' + new URL(cfg.siteUrl).origin + '/app-shell.js 能打开');
 
 // ---------------- 结果 ----------------
 console.log(`\n${'─'.repeat(52)}`);
