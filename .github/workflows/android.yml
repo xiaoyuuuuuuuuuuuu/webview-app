@@ -64,6 +64,11 @@ jobs:
           cache: gradle
 
       - uses: android-actions/setup-android@v3
+        with:
+          # 不要装 'tools' —— 这个包是旧版 Android SDK Tools,Google 仓库里已经移除,
+          # sdkmanager 会报 Failed to find package 'tools' 然后 exit 1(这是 action 的默认值)。
+          # runner 镜像自带 Android SDK,这一步只需要接受 license 和设好 ANDROID_HOME。
+          packages: ''
 
       - name: Gradle 构建
         working-directory: android
@@ -138,6 +143,11 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         if: steps.check.outputs.has_keystore == 'true'
+        with:
+          # 不要装 'tools' —— 这个包是旧版 Android SDK Tools,Google 仓库里已经移除,
+          # sdkmanager 会报 Failed to find package 'tools' 然后 exit 1(这是 action 的默认值)。
+          # runner 镜像自带 Android SDK,这一步只需要接受 license 和设好 ANDROID_HOME。
+          packages: ''
 
       - name: 还原 keystore
         if: steps.check.outputs.has_keystore == 'true'
