@@ -9,8 +9,12 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI 里用环境变量覆盖,不用每次改文件:
         //   ANDROID_VERSION_CODE=12 ANDROID_VERSION_NAME=1.2.0
-        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "1") as Integer
-        versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
+        // 必须用 = 显式赋值。写成 `versionCode (expr) as Integer`(空格 + 括号)时,
+        // Groovy 会把它解析成「取 versionCode 属性,再当闭包调用」,而那个属性此刻还是 null,
+        // 于是 AGP 抛 IllegalArgumentException: Value is null,报错位置指向 android{} 这一行,
+        // 看不出真正原因。这个坑只有真编译才会暴露。
+        versionCode = (System.getenv("ANDROID_VERSION_CODE") ?: "1") as Integer
+        versionName = System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
