@@ -81,7 +81,10 @@
   var style = document.createElement('style');
   style.textContent = [
     '.in-app { -webkit-tap-highlight-color: transparent; }',
-    '#app-shell-toast{position:fixed;left:50%;bottom:calc(24px + var(--app-safe-bottom));',
+    '#app-shell-toast{position:fixed;left:50%;',
+    // 24px 是离底边的呼吸距离;--app-bottom-inset 是 app 自己的底部栏(Tab 栏)占的高度。
+    // 不让开的话提示条会压在 Tab 栏上面 —— 它的 z-index 更高,会盖住 Tab 栏的图标。
+    'bottom:calc(24px + var(--app-safe-bottom) + var(--app-bottom-inset, 0px));',
     'transform:translate(-50%,16px);z-index:2147483000;max-width:80vw;',
     'padding:10px 18px;border-radius:999px;background:rgba(24,24,27,.92);color:#fff;',
     'font:14px/1.4 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;',
@@ -103,7 +106,10 @@
     '--app-safe-top:var(--safe-area-inset-top,env(safe-area-inset-top,0px));',
     '--app-safe-right:var(--safe-area-inset-right,env(safe-area-inset-right,0px));',
     '--app-safe-bottom:var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));',
-    '--app-safe-left:var(--safe-area-inset-left,env(safe-area-inset-left,0px));}',
+    '--app-safe-left:var(--safe-area-inset-left,env(safe-area-inset-left,0px));',
+    // app 自己加在底部的栏占了多高(app-tabbar.js 建好 Tab 栏之后会把它设成栏高)。
+    // 网站如果有自己的固定底栏,也可以设它,提示条会跟着让开。没有就是 0,等于没做。
+    '--app-bottom-inset:0px;}',
     // 给网站用的工具类。网站自己的选择器可能更具体,不生效就自己写 var(--app-safe-*)
     '.in-app .app-safe-top{padding-top:var(--app-safe-top);}',
     '.in-app .app-safe-bottom{padding-bottom:var(--app-safe-bottom);}',

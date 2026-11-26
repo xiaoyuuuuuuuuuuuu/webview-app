@@ -204,6 +204,16 @@ Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登�
 `app-safe-inset` `app-safe-fixed-top` `app-safe-fixed-bottom`。
 网站自己的选择器更具体时工具类会不生效,那就写上面那种 `var(...)` 形式。
 
+还有一个变量 `--app-bottom-inset`:app 自己加在底部的栏占了多高。
+`app-tabbar.js` 建好 Tab 栏之后会把它设成栏高(内联在 `<html>` 上),
+`app-shell.js` 的提示条据此自动往上让,不会压在 Tab 栏上面。
+**如果网站有自己的固定底栏**(而且没用 `app-tabbar.js`),把它设上,
+提示条也会跟着让开:
+
+```css
+.in-app { --app-bottom-inset: 56px; }   /* 你自己底栏的高度,不含 safe area */
+```
+
 调试用:`AppShell.safeArea()` 返回 `{top, right, bottom, left}` 的真实像素值
 (自定义属性用 `getPropertyValue` 读到的是没解析的字面量,所以这个函数
 内部拿一个隐藏元素当 padding 算了一遍)。真机上先用它确认 inset 到底是多少。
@@ -509,6 +519,8 @@ bridge JS 内联插进 `<head>`**(`WebViewLocalServer.handleProxyRequest` →
 
 它会给 `<html>` 加 `in-app-tabbar` class 并给 body 留出底部空间,
 safe area 用的是 `--app-safe-bottom`,所以 `native` 和 `cover` 两种模式都对。
+同时它会把栏高写进 `--app-bottom-inset`,这样 `app-shell.js` 的提示条
+(「再按一次退出」、断网提示、下载提示)会落在 Tab 栏上方而不是压住它。
 结算流程下默认不显示(`CONFIG.hideOn`)。
 
 #### 还要你自己做的「去网页化」

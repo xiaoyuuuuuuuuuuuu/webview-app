@@ -51,7 +51,10 @@
   var BAR_H = 52;
   var style = document.createElement('style');
   style.textContent = [
-    '#app-tabbar{position:fixed;left:0;right:0;bottom:0;z-index:2147482000;',
+    // box-sizing 必须是 border-box:height 里已经算进了 --app-safe-bottom,
+    // 下面的 padding-bottom 又是同一个值。content-box 会把它加两遍 —— 栏高会比
+    // 声明的多出一个 safe area(手势条机型上实测多 34px),底部内容和提示条都会被压住。
+    '#app-tabbar{position:fixed;left:0;right:0;bottom:0;z-index:2147482000;box-sizing:border-box;',
     'display:flex;align-items:stretch;',
     'height:calc(' + BAR_H + 'px + var(--app-safe-bottom,0px));',
     'padding-bottom:var(--app-safe-bottom,0px);',
@@ -107,6 +110,11 @@
 
     document.body.appendChild(nav);
     document.documentElement.classList.add('in-app-tabbar');
+
+    // 告诉 app-shell.js 底部被占了多高 —— 它的提示条(返回键的「再按一次退出」、
+    // 断网提示、下载提示)要让开,否则会压在 Tab 栏上面。
+    // 用内联样式而不是 CSS 类:内联优先级最高,不依赖两个 <style> 的先后顺序。
+    document.documentElement.style.setProperty('--app-bottom-inset', BAR_H + 'px');
   }
 
   if (document.body) build();
