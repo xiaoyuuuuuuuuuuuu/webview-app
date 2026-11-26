@@ -141,10 +141,10 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 真实注入的插件列表(`PluginHeaders`),不是配置文件 —— 配置文件会和用户装的版本脱节,这个不会:
 
 ```js
-if (AppShell.has('scanner')) {
-  startScan();
+if (AppShell.has('biometric')) {
+  unlockWithBiometry();
 } else {
-  showManualInput();   // 降级,别提示「出错了」
+  showPasswordForm();   // 降级,别提示「出错了」
 }
 ```
 
@@ -168,11 +168,11 @@ if (AppShell.has('scanner')) {
 `call()` 把两种都变成 `null`,分不出来。这是加 `invoke()` 的唯一理由。
 
 ```js
-AppShell.invoke('BarcodeScanner', 'scan', {}).then(function (r) {
-  showResult(r.barcode);
+AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
+  AppShell.toast('已保存到相册');
 }).catch(function (e) {
-  if (e.code === 'unsupported') showManualInput();
-  else AppShell.toast('扫码失败,再试一次');
+  if (e.code === 'unsupported') hideSaveButton();
+  else AppShell.toast('保存失败,再试一次');
 });
 ```
 
@@ -202,7 +202,7 @@ AppShell.invoke('BarcodeScanner', 'scan', {}).then(function (r) {
 
 | 开关 | 要装的插件 | 它会声明什么 |
 |---|---|---|
-| `scanner` | `@capacitor-mlkit/barcode-scanning` | Android `CAMERA` + iOS `NSCameraUsageDescription` |
+| `scanner` | `@capacitor-mlkit/barcode-scanning` | Android `CAMERA` + iOS `NSCameraUsageDescription`。**本项目没开**,原因见下面「为什么没开扫码」 |
 | `biometric` | `@aparajita/capacitor-biometric-auth` | iOS `NSFaceIDUsageDescription`(少了是直接崩,不是报错) |
 | `saveToAlbum` | `@capacitor-community/media` | iOS `NSPhotoLibraryAddUsageDescription`(只写不读) |
 | `localNotifications` | `@capacitor/local-notifications` | 复用已有的 `POST_NOTIFICATIONS` |
@@ -217,7 +217,7 @@ AppShell.invoke('BarcodeScanner', 'scan', {}).then(function (r) {
 Android 多一个权限,Google Play 的 Data safety 表格就要多填一条。开关把「声明权限」和
 「真的用到」绑在一起,两边都省事。
 
-### 三个能力怎么用
+### 两个能力怎么用
 
 开关打开、插件装好之后,把 `app-capabilities.js` 也传到网站,放在 `app-shell.js` 之后:
 
@@ -230,19 +230,8 @@ Android 多一个权限,Google Play 的 Data safety 表格就要多填一条。�
 网站不能假设新能力一定在:
 
 ```js
-// 扫码 —— 取消扫描返回空数组,那不是错误,别弹提示
-if (AppShell.has('scanner')) {
-  AppShell.scan().then(function (list) {
-    if (list.length) fillInput(list[0].value);
-  }).catch(function (e) {
-    if (e.code === 'denied') AppShell.toast('需要摄像头权限');
-    else if (e.code !== 'unsupported') AppShell.toast('扫码失败');
-  });
-} else {
-  showManualInput();
-}
-
-// 生物识别
+// 生物识别 —— 用户取消也走 catch,那不是故障,别弹提示
+if (!AppShell.has('biometric')) showPasswordForm();
 AppShell.biometric.verify({ reason: '验证身份后查看订单' })
   .then(function () { unlock(); })
   .catch(function (e) { /* 用户取消或设备不支持 */ });
@@ -256,10 +245,36 @@ AppShell.saveImage(couponImageUrl, { fileName: 'coupon' })
 
 | | 说明 |
 |---|---|
-| **扫码在 iOS 上不可用** | `@capacitor-mlkit/barcode-scanning` 没有 `Package.swift`,而本项目 iOS 用 SPM(见「已知坑」第 3 条),所以它进不了 iOS 构建。iOS 上 `has('scanner')` 返回 `false`,必须降级到手动输入。**而且它对 Apple 4.2 不算数** —— 4.2 看的是 iOS |
 | **生物识别不是登录** | 它只证明「手机的主人在场」,不证明身份。真正的登录态必须服务器签发、绑设备、可吊销、有有效期。注入的脚本也能触发一次解锁,所以**服务器侧必须二次校验** |
 | **相册在 Android 要指定相册** | `savePhoto` 的 `albumIdentifier` 在 Android 上必填。`app-capabilities.js` 会按 `CONFIG.albumName` 自动找/建一个,**记得把它改成你的 app 名** |
-| **扫码依赖 Play Services 模块** | `configure.mjs` 会往 Manifest 注入 `com.google.mlkit.vision.DEPENDENCIES=barcode_ui`,让模块在装 app 时就准备好。不加这条就要运行时现下,店里网不好会失败 |
+
+#### 为什么没开扫码
+
+扫码是做过的(完整实现在 commit `3634166`,要用从 git 里取回就行),实测之后又去掉了。
+两个原因:
+
+**它在 iOS 上根本不存在。** `@capacitor-mlkit/barcode-scanning` 没有 `Package.swift`,
+而本项目 iOS 用 SPM(见「已知坑」第 3 条)—— SPM 不收它,所以 iOS 上 `has('scanner')`
+永远是 `false`。**而 Apple 4.2 看的正好是 iOS**,所以它对过审的贡献是零。
+
+**它让 Android 包涨 13MB。** 实测 debug APK:
+
+```
+5,363,610 字节  →  19,142,295 字节   (+13MB)
+```
+
+因为这个插件把两条路都拉进来了:
+
+```
+com.google.mlkit:barcode-scanning                  ← 打包进 app 的离线模型(13MB 的大头)
+com.google.android.gms:play-services-code-scanner  ← 我们实际走的按需下载那条
++ androidx.camera core/camera2/lifecycle/view
+```
+
+把离线模型 exclude 掉会让插件模块自己编译不过,所以这不是配置能省掉的。
+
+**什么时候该开**:你的业务里真的有扫码场景(门店核验、取货码、会员码),而且你接受
+它只在 Android 上有。这时 13MB 换一个核心功能是值得的 —— 但别把它当成过审的筹码。
 
 `npm run verify` 会把上面这些都盯住:插件名和真插件一致、开关和权限一致、
 开了能力但插件没装、插件装了但开关没开、以及**哪些能力只在 Android 上有**。
@@ -615,13 +630,17 @@ Apple 的原则是:app 必须比「重新打包的网站」更多。审核不看
 | 做法 | 算不算"Safari 做不到" | 在哪 |
 |---|---|---|
 | **离线阅读** | ✅ 算。审核员真的会开飞行模式试 | `website/sw.js`,由 `app-shell.js` 只在 app 里注册 |
+| **生物识别** | ✅ 算。而且两端都真的可用 | `capabilities.biometric` + `website/app-capabilities.js` |
+| **保存到相册** | ✅ 算。而且两端都真的可用 | `capabilities.saveToAlbum` + `website/app-capabilities.js` |
 | **原生底部 Tab 栏** | ❌ 不算能力,但是审核员第一眼的"这不是网页"信号 | `website/app-tabbar.js` |
 | 推送 | ❌ Apple 点名说光有推送不够 | 第七节 |
 | 深度链接 | ❌ 不算,但是加分项 | 第二节 |
 
-所以组合是「一个真能力 + 一层观感」。**只做 Tab 栏不够**,离线阅读是这套里
-唯一拿得出手的能力;如果你的业务里有扫码、拍照上传、生物识别这类场景,
-再加一个会稳得多 —— 但别硬加业务里不存在的功能,审核员看得出来。
+所以组合是「三个真能力 + 一层观感」,三个在 iOS 上都真的在。**只做 Tab 栏不够。**
+
+还想再加的话,先问一句业务里到底有没有这个场景 —— 别硬加业务里不存在的功能,
+审核员看得出来;而且每加一个都要付包体和 XSS 影响面的代价(扫码那 13MB 就是
+现成的例子,见「为什么没开扫码」)。
 
 #### 离线阅读
 

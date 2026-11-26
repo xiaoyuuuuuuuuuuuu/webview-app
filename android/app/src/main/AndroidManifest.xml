@@ -38,11 +38,6 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- CAPABILITIES-META:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->
-        <!-- capabilities.scanner -->
-        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
-        <!-- CAPABILITIES-META:END -->
     </application>
 
     <!-- Permissions -->
@@ -52,9 +47,4 @@
     <!-- 下载进度通知。Android 13+ 还要运行时请求,见 MainActivity.ensureNotificationPermission()。
          没授权下载照样进行,只是通知栏不显示进度。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- CAPABILITIES:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->
-    <!-- capabilities.scanner -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <!-- CAPABILITIES:END -->
 </manifest>

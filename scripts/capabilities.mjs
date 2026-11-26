@@ -22,6 +22,9 @@
  *   名字写错的后果是 has() 永远返回 false,而且不会报错。
  */
 export const CAPABILITIES = {
+  // 本项目没开。它 iOS 上用不了(插件没 Package.swift,SPM 不收它),而且 Android 包会涨 13MB
+  // (离线模型 + play-services-code-scanner + androidx.camera 全栈)。要开先读 README
+  // 的「为什么没开扫码」—— 网站侧实现在 commit 3634166 里,可以取回。
   scanner: {
     plugin: 'BarcodeScanner',
     npm: '@capacitor-mlkit/barcode-scanning',

@@ -1,5 +1,5 @@
 /*!
- * app-capabilities.js —— 三个原生能力的网站侧接口:扫码、生物识别、保存到相册
+ * app-capabilities.js —— 原生能力的网站侧接口:生物识别、保存到相册
  *
  * 依赖 app-shell.js,必须在它之后加载:
  *     <script src="/app-shell.js" defer></script>
@@ -8,7 +8,7 @@
  * 在普通浏览器里什么都不做(第一个判断就 return)。
  *
  * ───────────────────────────────────────────────────────────────────
- * 这三项都要 app.config.json 的 capabilities 开关打开【并且】插件已经
+ * 这两项都要 app.config.json 的 capabilities 开关打开【并且】插件已经
  * npm install,两者缺一不可:
  *   - 开关负责声明权限和 iOS 用途字符串(少了用途字符串,iOS 上是直接崩)
  *   - 插件负责真正的原生实现
@@ -57,49 +57,6 @@
       return capError('unsupported', pluginLabel + ' 没有编进这个 app(capabilities.' + name + ' 没开,或者用户装的是旧版)');
     }
     return null;
-  }
-
-  // ---------------------------------------------------------------- 扫码
-
-  /**
-   * 扫码。成功返回一个数组,每项是 { value, format, type }。
-   * 用户主动取消(没扫到就退出)返回空数组 —— 这【不是】错误,别弹提示。
-   *
-   * 用的是 scan():Google 的原生扫码界面,一次调用就有完整 UI。
-   * 代价是它依赖 Google Play Services 的扫码模块 —— AndroidManifest 里那条
-   * com.google.mlkit.vision.DEPENDENCIES=barcode_ui(由 configure.mjs 注入)
-   * 让模块在装 app 时就准备好,所以正常情况下不用现下。
-   * 真机上万一还是没有,这里会抛 'failed' 并说明原因,而不是默默卡住。
-   */
-  function scan(options) {
-    var missing = requireCapability('scanner', '扫码');
-    if (missing) return Promise.reject(missing);
-
-    return invoke('BarcodeScanner', 'isSupported', {})
-      .then(function (r) {
-        if (r && r.supported === false) {
-          throw capError('failed', '这台设备不支持扫码');
-        }
-        return invoke('BarcodeScanner', 'requestPermissions', {});
-      })
-      .then(function (perm) {
-        // 权限被拒不是插件报错,是正常 resolve 出一个状态 —— 所以这里要自己判断。
-        // 这正是用 invoke() 而不是 call() 的理由:call() 会把两种情况都变成 null。
-        if (perm && perm.camera !== 'granted' && perm.camera !== 'limited') {
-          throw capError('denied', '没有摄像头权限');
-        }
-        return invoke('BarcodeScanner', 'scan', options || {});
-      })
-      .then(function (res) {
-        var list = (res && res.barcodes) || [];
-        return list.map(function (b) {
-          return {
-            value: b.rawValue || b.displayValue || '',
-            format: b.format,
-            type: b.valueType,
-          };
-        });
-      });
   }
 
   // ---------------------------------------------------------------- 生物识别
@@ -189,7 +146,6 @@
 
   // ---------------------------------------------------------------- 对外
 
-  AppShell.scan = scan;
   AppShell.saveImage = saveImage;
   AppShell.biometric = {
     check: biometryCheck,
