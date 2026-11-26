@@ -83,9 +83,45 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -skipPackagePluginValidation \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tail -40
+
+      # 把没签名的 App.app 打成 .ipa。
+      #
+      # 为什么要这个:上面那一步只证明"能编过",没有任何东西能装到 iPhone 上。
+      # 而下面 TestFlight 那个 job 要付费的 Apple 开发者账号。没账号的话,
+      # 拿这个未签名 IPA + Sideloadly/AltStore + 免费 Apple ID 就能装到自己机器上试。
+      #
+      # .ipa 其实就是个 zip,里面 Payload/App.app —— 没有别的要求。
+      # 它没有签名也没有 provisioning profile,这正是 Sideloadly 要的:它自己重签。
+      #
+      # ⚠ 免费 Apple ID 签不了 associated-domains(深度链接要的那个 entitlement),
+      #   Sideloadly 会把它去掉。所以这样装进去的包深度链接不生效 ——
+      #   但测试站在 GitHub Pages 的子路径下,.well-known 本来就不在域名根目录,
+      #   深度链接现阶段本来就测不了,所以这里不损失什么。
+      - name: 打成未签名 IPA (用于 sideload)
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/App.app"
+          test -d "$APP" || { echo "::error::找不到 $APP"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -qry "$RUNNER_TEMP/App-unsigned.ipa" Payload
+          ls -la "$RUNNER_TEMP/App-unsigned.ipa"
+          # 确认里面真的有可执行文件,而不是个空壳
+          unzip -l "$RUNNER_TEMP/App-unsigned.ipa" | grep -q "Payload/App.app/App" \
+            || { echo "::error::IPA 里没有可执行文件"; exit 1; }
+
+      - name: 上传未签名 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-ios-unsigned-ipa
+          path: ${{ runner.temp }}/App-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
 
   testflight:
     name: 打包并上传 TestFlight
