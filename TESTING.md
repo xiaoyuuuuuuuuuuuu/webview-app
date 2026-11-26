@@ -35,7 +35,7 @@ appName   testing
 | Android 返回键 / 双击退出 | ✅ | |
 | 下拉刷新 | ✅ | |
 | **扫码** | ❌ | 本项目有意关掉了。点那个按钮应该回 `unsupported` |
-| **深度链接 / Universal Links** | ❌ | `.well-known` 必须在**域名根目录**,而测试站在 `/webview-app/` 子路径下。要等你的真域名 |
+| **深度链接 / Universal Links** | ❌ | 两个原因叠在一起:`.well-known` 必须在**域名根目录**,而测试站在 `/webview-app/` 子路径下;而且免费签名的包没有 `associated-domains`。要等你的真域名 |
 | **推送通知** | ❌ | 要 Firebase 凭据 + 你自己的服务器 |
 | **强制更新** | ❌ | `updateCheckUrl` 是空的(默认关闭) |
 
@@ -91,26 +91,53 @@ CI 里已经写好了,只要配 4 个 secret。
 打开 **Associated Domains**。不开的话 provisioning profile 对不上,
 签名构建会直接失败(无证书的编译验证不受影响)。
 
-### 路 B:只有免费 Apple ID → Sideloadly 自己重签
+### 路 B:只有免费 Apple ID → Sideloadly 自己重签 ← **你走这条**
 
-CI 现在会产出一个**未签名 IPA**:
+CI 会产出一个**未签名 IPA**:
 **Actions → iOS → 最近一次运行 → Artifacts → `app-ios-unsigned-ipa`**
 
-在 Windows 上:
+> 这个 IPA 拆开核过了:`Payload/App.app/App` 可执行文件在,Capacitor 和 Cordova
+> 两个 framework 都在,**没有 `_CodeSignature`、没有 `embedded.mobileprovision`** ——
+> 这正是 Sideloadly 想要的输入,它自己重签。
 
-1. 装 [Sideloadly](https://sideloadly.io/)(或 AltStore)
-2. 装 Apple 的 **iTunes**(要的是里面的设备驱动,不是 Microsoft Store 那个版本)
-3. iPhone 用数据线连电脑,手机上点「信任此电脑」
-4. 把 `App-unsigned.ipa` 拖进 Sideloadly,填你的免费 Apple ID,开始
-5. 装完手机上还要:**设置 → 通用 → VPN与设备管理 → 信任你的开发者证书**,
-   否则点图标会提示「不受信任的开发者」
+#### 准备
 
-免费账号的三个限制,**不是 bug**:
+1. 装 [Sideloadly](https://sideloadly.io/)
+2. 装 Apple 的 **iTunes** —— 要的是里面的**设备驱动**。
+   **必须装 apple.com 下载的那个版本,不要装 Microsoft Store 版**,
+   Store 版不带驱动,Sideloadly 会认不到手机
+3. iPhone 用数据线连电脑,手机上点「**信任此电脑**」并输密码
 
-- **7 天到期**,过期要重新 sideload 一次
-- 同时最多 3 个自签 app
-- 签不了 `associated-domains`,Sideloadly 会把它去掉 →
-  **深度链接不生效**(反正现在也测不了,见第 0 节)
+#### 装
+
+4. 把 `App-unsigned.ipa` 拖进 Sideloadly,填你的免费 Apple ID,点 Start
+   - 账号开了两步验证的话,它会要一个验证码,照着手机上弹的填
+   - 装的过程中它会去 Apple 那边注册一个 App ID,正常要几十秒
+
+#### 装完还有两步,少一步就打不开
+
+5. **信任证书**:设置 → 通用 → **VPN与设备管理** → 点你的 Apple ID → **信任**。
+   不做这一步,点图标会提示「不受信任的开发者」
+6. **开启开发者模式**(iOS 16 及以上必须):
+   设置 → **隐私与安全性** → 拉到最下面 → **开发者模式** → 打开 → **重启手机** →
+   重启后会再确认一次
+
+   > **这一步最容易卡住。** iOS 16 之前没有这个开关,所以很多教程里没写。
+   > 症状是:装是装上了,图标也在,但点开闪退或者直接没反应。
+
+#### 免费账号的限制,这些都**不是 bug**
+
+| | |
+|---|---|
+| **7 天到期** | 过期后 app 打不开,重新 sideload 一次即可。**测试期间尽量一次测完** |
+| 同时最多 3 个自签 app | 超了要先删掉别的 |
+| 每周能注册的 App ID 有限 | 反复重装同一个包不受影响 |
+| 深度链接不生效 | 未签名 IPA 里**本来就没有任何 entitlement**(没签名就没有 entitlements 段 —— 实测核对过),Sideloadly 用免费 profile 自己的那套签。所以 `associated-domains` 压根不存在。反正测试站也测不了深度链接,见第 0 节 |
+| 评分弹窗弹不出来 | 非 App Store 渠道装的包本来就基本弹不出来 |
+
+**其余五项能力不受免费签名影响**:生物识别(LocalAuthentication)、保存到相册、
+本地通知、剪贴板、设备 ID 都不需要特殊 entitlement,只要 Info.plist 里的用途字符串,
+那两条已经在包里了(实测核对过)。
 
 ### 路 C:手边有 Mac → Xcode 直接跑
 

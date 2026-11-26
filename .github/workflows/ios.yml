@@ -97,10 +97,12 @@ jobs:
       # .ipa 其实就是个 zip,里面 Payload/App.app —— 没有别的要求。
       # 它没有签名也没有 provisioning profile,这正是 Sideloadly 要的:它自己重签。
       #
-      # ⚠ 免费 Apple ID 签不了 associated-domains(深度链接要的那个 entitlement),
-      #   Sideloadly 会把它去掉。所以这样装进去的包深度链接不生效 ——
-      #   但测试站在 GitHub Pages 的子路径下,.well-known 本来就不在域名根目录,
-      #   深度链接现阶段本来就测不了,所以这里不损失什么。
+      # 关于 entitlements:因为 CODE_SIGNING_ALLOWED=NO,这个包【根本没有 entitlements 段】
+      #   (entitlements 是 codesign 的时候才嵌进去的)。实测拆包核对过:
+      #   associated-domains / aps-environment / get-task-allow 一个都不在。
+      #   所以 Sideloadly 没有东西要"去掉",它用免费 profile 自己那套签。
+      #   结果是深度链接不生效 —— 但测试站在 GitHub Pages 的子路径下,
+      #   .well-known 本来就不在域名根目录,深度链接现阶段本来就测不了,不损失什么。
       - name: 打成未签名 IPA (用于 sideload)
         run: |
           set -euo pipefail
