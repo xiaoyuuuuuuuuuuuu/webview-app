@@ -217,6 +217,53 @@ AppShell.invoke('BarcodeScanner', 'scan', {}).then(function (r) {
 Android 多一个权限,Google Play 的 Data safety 表格就要多填一条。开关把「声明权限」和
 「真的用到」绑在一起,两边都省事。
 
+### 三个能力怎么用
+
+开关打开、插件装好之后,把 `app-capabilities.js` 也传到网站,放在 `app-shell.js` 之后:
+
+```html
+<script src="/app-shell.js" defer></script>
+<script src="/app-capabilities.js" defer></script>
+```
+
+**每次调用前先 `has()`。** 用户手机里的 app 可能比网站旧好几个版本,
+网站不能假设新能力一定在:
+
+```js
+// 扫码 —— 取消扫描返回空数组,那不是错误,别弹提示
+if (AppShell.has('scanner')) {
+  AppShell.scan().then(function (list) {
+    if (list.length) fillInput(list[0].value);
+  }).catch(function (e) {
+    if (e.code === 'denied') AppShell.toast('需要摄像头权限');
+    else if (e.code !== 'unsupported') AppShell.toast('扫码失败');
+  });
+} else {
+  showManualInput();
+}
+
+// 生物识别
+AppShell.biometric.verify({ reason: '验证身份后查看订单' })
+  .then(function () { unlock(); })
+  .catch(function (e) { /* 用户取消或设备不支持 */ });
+
+// 保存到相册
+AppShell.saveImage(couponImageUrl, { fileName: 'coupon' })
+  .then(function () { AppShell.toast('已保存到相册'); });
+```
+
+几件必须知道的事:
+
+| | 说明 |
+|---|---|
+| **扫码在 iOS 上不可用** | `@capacitor-mlkit/barcode-scanning` 没有 `Package.swift`,而本项目 iOS 用 SPM(见「已知坑」第 3 条),所以它进不了 iOS 构建。iOS 上 `has('scanner')` 返回 `false`,必须降级到手动输入。**而且它对 Apple 4.2 不算数** —— 4.2 看的是 iOS |
+| **生物识别不是登录** | 它只证明「手机的主人在场」,不证明身份。真正的登录态必须服务器签发、绑设备、可吊销、有有效期。注入的脚本也能触发一次解锁,所以**服务器侧必须二次校验** |
+| **相册在 Android 要指定相册** | `savePhoto` 的 `albumIdentifier` 在 Android 上必填。`app-capabilities.js` 会按 `CONFIG.albumName` 自动找/建一个,**记得把它改成你的 app 名** |
+| **扫码依赖 Play Services 模块** | `configure.mjs` 会往 Manifest 注入 `com.google.mlkit.vision.DEPENDENCIES=barcode_ui`,让模块在装 app 时就准备好。不加这条就要运行时现下,店里网不好会失败 |
+
+`npm run verify` 会把上面这些都盯住:插件名和真插件一致、开关和权限一致、
+开了能力但插件没装、插件装了但开关没开、以及**哪些能力只在 Android 上有**。
+
 ---
 
 ### 文件下载

@@ -106,6 +106,10 @@ function managedBlock(source, beginMark, endMark, body, closeTag) {
 const CAP_BEGIN_ANDROID =
   '\n\n    <!-- CAPABILITIES:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->';
 const CAP_END_ANDROID = '\n    <!-- CAPABILITIES:END -->';
+// meta-data 必须落在 <application> 里面,所以和权限是两个不同的注入点。
+const CAP_BEGIN_ANDROID_META =
+  '\n\n        <!-- CAPABILITIES-META:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->';
+const CAP_END_ANDROID_META = '\n        <!-- CAPABILITIES-META:END -->';
 const CAP_BEGIN_IOS =
   '\n\t<!-- CAPABILITIES:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->';
 const CAP_END_IOS = '\n\t<!-- CAPABILITIES:END -->';
@@ -210,6 +214,18 @@ if (existsSync(join(root, 'android'))) {
       ),
     );
     return managedBlock(s, CAP_BEGIN_ANDROID, CAP_END_ANDROID, perms.join(''), '\n</manifest>');
+  });
+
+  // 能力要的 <meta-data>。和权限分开,因为它必须在 <application> 内部。
+  patch('android/app/src/main/AndroidManifest.xml', 'Android 能力 meta-data', (s) => {
+    const metas = activeCapabilities.flatMap((name) =>
+      (CAPABILITIES[name].androidMeta || []).map(
+        (m) =>
+          '\n        <!-- capabilities.' + name + ' -->\n        <meta-data android:name="' +
+          m.name + '" android:value="' + m.value + '" />',
+      ),
+    );
+    return managedBlock(s, CAP_BEGIN_ANDROID_META, CAP_END_ANDROID_META, metas.join(''), '\n    </application>');
   });
 
   // 主题色

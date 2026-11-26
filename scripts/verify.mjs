@@ -257,6 +257,72 @@ check('能力的插件名两边一致', () => {
   return bad.length === 0 || bad.join(';');
 });
 
+// 插件装上之后,注册名就能跟【真插件】对 —— 这比只比对我们自己那两个文件强得多:
+// 两边一致地写错,上面那个检查是发现不了的。biometric 就踩过这个:包名是
+// capacitor-biometric-auth,但注册名实际是 BiometricAuthNative。
+check('能力的插件名和真插件一致', () => {
+  const bad = [];
+  let checked = 0;
+  for (const [name, def] of Object.entries(CAPABILITIES)) {
+    const entry = `node_modules/${def.npm}/dist/esm/index.js`;
+    if (!has(entry)) continue;
+    checked++;
+    const src = read(entry);
+    const marker = "registerPlugin('";
+    const at = src.indexOf(marker);
+    if (at === -1) {
+      bad.push(`${name}: 读不出 ${def.npm} 的注册名`);
+      continue;
+    }
+    const rest = src.slice(at + marker.length);
+    const real = rest.slice(0, rest.indexOf("'"));
+    if (real !== def.plugin) {
+      bad.push(`${name}: 真插件是 ${real},capabilities.mjs 写的是 ${def.plugin}`);
+    }
+  }
+  if (checked === 0) return true;   // 一个插件都没装,没什么可对的
+  return bad.length === 0 || bad.join(';');
+});
+
+// 反方向:插件装了但开关没开。这个状态是危险的 —— Capacitor 会把所有已安装的
+// 插件都编进 app(XSS 影响面已经扩大了),但开关没开就没声明权限和 iOS 用途字符串,
+// 结果 has() 返回 true、调用却必然失败,而且 iOS 上缺用途字符串是直接崩。
+check('装了插件的能力开关都开着', () => {
+  const active = enabledCapabilities(cfg);
+  const pkg = JSON.parse(read('package.json'));
+  const deps = Object.assign({}, pkg.dependencies, pkg.devDependencies);
+  const bad = Object.entries(CAPABILITIES)
+    .filter(([name, def]) => deps[def.npm] && !active.includes(name))
+    .map(([name, def]) => `${name}(装了 ${def.npm} 但开关是 false)`);
+  return bad.length === 0 ||
+    '插件已经编进 app 但权限没声明,调用必然失败: ' + bad.join('; ');
+});
+
+// iOS 用的是 SPM(见 BUILD_SPEC 坑 3:云端构建不装 CocoaPods)。没有 Package.swift 的
+// 插件进不了 SPM 构建 —— Android 有、iOS 没有,这种平台不对称很隐蔽,所以明确报出来。
+// 后果不是崩,而是 has() 在 iOS 上返回 false、能力静默缺失。对 Apple 4.2 来说
+// 一个只在 Android 上存在的能力贡献是零。
+soft('开启的能力在 iOS 上也可用', () => {
+  const active = enabledCapabilities(cfg);
+  const pkg = JSON.parse(read('package.json'));
+  const deps = Object.assign({}, pkg.dependencies, pkg.devDependencies);
+  const androidOnly = active.filter(
+    (n) => deps[CAPABILITIES[n].npm] && !has(`node_modules/${CAPABILITIES[n].npm}/Package.swift`),
+  );
+  return androidOnly.length === 0 ||
+    `这些能力只在 Android 上有(插件没有 Package.swift,SPM 构建不包含): ${androidOnly.join('、')}` +
+    ' —— 网站侧必须用 AppShell.has() 判断后降级,而且它们对 Apple 4.2 不算数';
+});
+
+check('开了能力就要有 app-capabilities.js', () => {
+  const active = enabledCapabilities(cfg).filter((n) => n !== 'localNotifications');
+  if (!active.length) return true;
+  return (
+    has('website/app-capabilities.js') ||
+    `开了 ${active.join(' / ')} 但 website/app-capabilities.js 不在 —— 网站侧没有接口可调`
+  );
+});
+
 // 开关开了但插件没装:configure 不会替你装,所以这里提醒一下
 soft('开启的能力都装了插件', () => {
   const active = enabledCapabilities(cfg);

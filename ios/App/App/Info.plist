@@ -66,5 +66,16 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- CAPABILITIES:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->
+	<!-- capabilities.scanner -->
+	<key>NSCameraUsageDescription</key>
+	<string>扫描商品条码和取货码时需要使用相机。</string>
+	<!-- capabilities.biometric -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>用面容 ID 快速登录你的账号。</string>
+	<!-- capabilities.saveToAlbum -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>把优惠券、订单二维码保存到你的相册。</string>
+	<!-- CAPABILITIES:END -->
 </dict>
 </plist>

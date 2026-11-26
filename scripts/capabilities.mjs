@@ -29,10 +29,17 @@ export const CAPABILITIES = {
       NSCameraUsageDescription: '扫描商品条码和取货码时需要使用相机。',
     },
     android: ['android.permission.CAMERA'],
+    // 让 Play Services 在安装 app 时就把 ML Kit 的扫码模块装好。
+    // 不加这条就得在运行时调 installGoogleBarcodeScannerModule() 现下 ——
+    // 零售场景常常在店里网不好,第一次扫码就失败。
+    // 注意 meta-data 必须在 <application> 里面,所以它走和权限不同的注入点。
+    androidMeta: [{ name: 'com.google.mlkit.vision.DEPENDENCIES', value: 'barcode_ui' }],
   },
 
   biometric: {
-    plugin: 'BiometricAuth',
+    // 注册名实测是 BiometricAuthNative(@CapacitorPlugin(name = "BiometricAuthNative")),
+    // 不是包名暗示的 BiometricAuth。写错 has() 会永远返回 false 且不报错。
+    plugin: 'BiometricAuthNative',
     // 注意:不要用 capacitor-native-biometric —— 它依赖 @capacitor/core ^3.4.3,
     // 最后一次发布是 2023-06,停在 Capacitor 3 时代。
     npm: '@aparajita/capacitor-biometric-auth',
@@ -41,6 +48,7 @@ export const CAPABILITIES = {
       NSFaceIDUsageDescription: '用面容 ID 快速登录你的账号。',
     },
     android: [],
+    androidMeta: [],
   },
 
   saveToAlbum: {
@@ -51,7 +59,10 @@ export const CAPABILITIES = {
       // 声明了审核会多问一轮,而保存图片根本不需要读。
       NSPhotoLibraryAddUsageDescription: '把优惠券、订单二维码保存到你的相册。',
     },
+    // 只存到 app 自己的相册不需要任何 Android 权限(插件 README 实测确认),
+    // READ_MEDIA_IMAGES 那些只有"相册类 app 要读全部相册"才需要。
     android: [],
+    androidMeta: [],
   },
 
   localNotifications: {
@@ -60,6 +71,7 @@ export const CAPABILITIES = {
     ios: {},
     // POST_NOTIFICATIONS 已经为了下载进度通知写进 Manifest 了,这里不用再加。
     android: [],
+    androidMeta: [],
   },
 };
 

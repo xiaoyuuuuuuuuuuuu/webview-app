@@ -114,7 +114,7 @@
   var CAPABILITY_PLUGIN = {
     // 由 app.config.json 的 capabilities 开关决定装不装
     scanner: 'BarcodeScanner',
-    biometric: 'BiometricAuth',
+    biometric: 'BiometricAuthNative',   // 实测的注册名,不是 BiometricAuth
     saveToAlbum: 'Media',
     localNotifications: 'LocalNotifications',
     // 壳一直都装的 7 个,列出来是为了 has() 对它们也能回答
