@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>离线测试 · testing</title>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1>离线测试</h1>
+  <p class="sub">这是 Apple 4.2 真正看重的那一项 —— 审核员会开飞行模式试。</p>
+
+  <div class="note stop" id="no-shell" hidden>
+    <strong>现在是在普通浏览器里。</strong>
+    <code>app-shell.js</code> <strong>刻意不在浏览器里注册 Service Worker</strong> ——
+    一个写坏的 SW 能把整个线上站搞挂。所以这一页在浏览器里永远显示「没有注册」,那是对的。
+  </div>
+
+  <h2>当前状态</h2>
+  <div class="card" id="sw"></div>
+
+  <h2>怎么测</h2>
+  <ol>
+    <li>联网状态下把这几页都点一遍(让 SW 把它们缓存下来)</li>
+    <li>打开<strong>飞行模式</strong></li>
+    <li>把 app 完全退掉再重新打开</li>
+  </ol>
+  <p>期望:还能看到页面内容,而不是「无法连接」的报错页。</p>
+
+  <div class="note warn">
+    <strong>两条缓存策略要先知道,不然会误判。</strong>
+    <br>① <strong>HTML 是网络优先</strong>,只有联网失败才用缓存 ——
+    商城的价格和库存不能给缓存版本。所以联网时你看到的永远是最新的,
+    「缓存有没有生效」要断网才看得出来。
+    <br>② <code>/api</code> <code>/cart</code> <code>/checkout</code>
+    <code>/account</code> <code>/login</code> 这些路径<strong>一律不缓存</strong>。
+  </div>
+
+  <div class="note">
+    <strong>这个测试站有个限制。</strong>GitHub Pages 把站点放在
+    <code>/webview-app/</code> 子路径下,而 Service Worker 拿不到比自己所在目录更宽的作用域,
+    所以这里的 scope 是 <code>/webview-app/</code> 而不是 <code>/</code>。
+    换成你自己的域名(站在根目录)时,把 <code>app-shell.js</code> 的
+    <code>serviceWorkerUrl</code> 改回 <code>'/sw.js'</code> 就是全站生效。
+  </div>
+
+  <div class="note stop">
+    <strong>还有一条只有在 app 里才成立的事。</strong>
+    SW 一旦接管了导航请求,原生层就看不到「主框架加载失败」,
+    所以 Capacitor 的 <code>errorPath</code>(打包在 app 里的那个离线页)<strong>不会触发</strong>。
+    兜底页是 <code>sw.js</code> 自己返回的。断网后你看到哪一个,能判断是哪条路径生效了。
+  </div>
+
+  <h2>排查「页面怎么不更新」</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    改了网站却看不到变化,十次有九次是 SW 还在给旧缓存。清掉再刷新。
+  </p>
+  <div class="card">
+    <button data-needs-shell class="primary" onclick="doClear()">清缓存并注销 SW</button>
+    <button onclick="location.reload()">重新加载这一页</button>
+  </div>
+
+  <nav class="pages">
+    <a href="index.html">← 壳诊断</a>
+    <a href="capabilities.html">能力测试 →</a>
+    <a href="download.html">下载测试 →</a>
+  </nav>
+
+  <div id="log"></div>
+</div>
+
+<script src="test-common.js"></script>
+<script src="app-shell.js" defer></script>
+<script src="app-capabilities.js" defer></script>
+<script src="app-tabbar.js" defer></script>
+<script>
+function refresh() {
+  var el = document.getElementById('sw');
+  if (!('serviceWorker' in navigator)) {
+    T.renderPairs(el, [['浏览器支持 Service Worker', false]]);
+    return;
+  }
+  navigator.serviceWorker.getRegistrations().then(function (regs) {
+    T.renderPairs(el, [
+      ['在线 (navigator.onLine)', navigator.onLine],
+      ['注册数量', regs.length],
+      ['scope', regs.length ? regs.map(function (r) { return r.scope; }).join(', ') : '(没有注册)'],
+      ['状态', regs.length ? (regs[0].active ? 'active' : (regs[0].installing ? 'installing' : 'waiting')) : '—'],
+      ['控制着这一页吗', !!navigator.serviceWorker.controller],
+    ]);
+  });
+}
+
+window.addEventListener('load', function () {
+  T.requireShell('no-shell');
+  refresh();
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    T.log('这一页由 SW 控制,说明缓存已经在工作了。', 'ok');
+  } else {
+    T.log('这一页还没被 SW 控制。SW 首次注册后要下一次导航才接管 —— 点一下别的页再回来。');
+  }
+});
+window.addEventListener('online',  function () { T.log('联网了', 'ok'); refresh(); });
+window.addEventListener('offline', function () { T.log('断网了', 'err'); refresh(); });
+
+function doClear() {
+  var A = window.AppShell;
+  if (!A || !A.offline) { T.log('没有 AppShell.offline', 'err'); return; }
+  A.offline.clear().then(function (r) {
+    T.log('清完了,返回 ' + r + '。现在手动刷新一次。', 'ok');
+    refresh();
+  }).catch(function (e) { T.logErr('offline.clear()', e); });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>下载测试 · testing</title>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1>下载测试</h1>
+  <p class="sub">两个平台走的是完全不同的路,所以要分开看结果。</p>
+
+  <div class="note">
+    <strong>Android</strong>:原生 <code>DownloadListener</code> → 系统
+    <code>DownloadManager</code>。通知栏会出现下载进度,完成后能在「下载」里找到。
+    请求会带上 WebView 的 cookie(漏了这步,登录态文件会下成一个登录页 HTML,
+    而且 HTTP 200 看着还像成功)。
+    <br><br>
+    <strong>iOS</strong>:<code>app-shell.js</code> 拦下链接交给
+    <code>Browser.open()</code>(Safari View Controller),你在里面「存到文件」。
+    不走原生是因为拿不到 <code>WKDownloadDelegate</code> —— 要触发它必须先占住
+    <code>navigationDelegate</code>,而那个被 Capacitor 占着,硬抢会连带废掉离线页和 bridge 清理。
+  </div>
+
+  <div class="note stop">
+    <strong>iOS 上有一个必须知道的限制。</strong>
+    Safari View Controller <strong>不共享 WebView 的 cookie</strong>,
+    所以「需要登录才能下载」的文件在 iOS 上会失败(下到登录页)。
+    解法在服务器端:给下载链接发一个带签名的短期 URL。
+    这一页的文件不需要登录,所以测不出这个问题 —— 但你的真站上会遇到。
+  </div>
+
+  <h2>1. 带 download 属性的链接</h2>
+  <p class="sub" style="margin:-4px 0 8px">最可靠的一种,两端都认。</p>
+  <div class="card">
+    <a href="sample.pdf" download="testing-sample.pdf">
+      <button class="primary">下载 sample.pdf(有 download 属性)</button>
+    </a>
+  </div>
+
+  <h2>2. 只靠扩展名认出来的链接</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    没有 <code>download</code> 属性,靠路径结尾的 <code>.pdf</code> 匹配上
+    <code>app-shell.js</code> 的 <code>downloadExtensions</code>。
+  </p>
+  <div class="card">
+    <a href="sample.pdf"><button>打开 sample.pdf(没有 download 属性)</button></a>
+  </div>
+
+  <h2>3. 认不出来的那一类</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    路径里没有扩展名的导出接口(<code>/export?type=pdf</code> 这种)<strong>认不出来</strong>。
+    这不是 bug,是规则本身的边界 —— 真站上遇到就给那个 <code>&lt;a&gt;</code> 加
+    <code>download</code> 属性。下面这个链接故意不带扩展名,点了应该<em>不会</em>触发下载。
+  </p>
+  <div class="card">
+    <a href="sample.pdf?type=pdf&amp;no-extension-in-path=1">
+      <button>点它(预期:不触发下载逻辑)</button>
+    </a>
+  </div>
+
+  <h2>4. 外链分流</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    站外域名应该<strong>不在当前 WebView 里打开</strong>。
+    <code>externalInAppBrowser: true</code> 时走应用内浏览器(有「完成」按钮那种),
+    改成 false 就丢给系统浏览器。<strong>不管哪种,都不该把你挤出 app</strong>。
+  </p>
+  <div class="card">
+    <a href="https://example.com/"><button>打开一个站外链接</button></a>
+  </div>
+
+  <h2>认得出哪些扩展名</h2>
+  <div class="card"><code id="exts"></code></div>
+
+  <nav class="pages">
+    <a href="index.html">← 壳诊断</a>
+    <a href="capabilities.html">能力测试 →</a>
+    <a href="offline-test.html">离线测试 →</a>
+  </nav>
+
+  <div id="log"></div>
+</div>
+
+<script src="test-common.js"></script>
+<script src="app-shell.js" defer></script>
+<script src="app-capabilities.js" defer></script>
+<script src="app-tabbar.js" defer></script>
+<script>
+window.addEventListener('load', function () {
+  T.requireShell('no-shell');
+  // 这个正则写在 app-shell.js 的 CONFIG 里,但没导出,所以这里只是把它抄一份展示
+  document.getElementById('exts').textContent =
+    '.pdf .xls(x) .doc(x) .csv .zip .rar .7z .ppt(x) .apk .ipa .dmg .mp4 .mp3';
+  var A = window.AppShell;
+  if (A) {
+    T.log('platform=' + A.platform + ' —— '
+      + (A.platform === 'ios'
+          ? 'iOS:下载走 app-shell.js 拦截 + Browser.open(),看有没有弹出 Safari 视图'
+          : 'Android:下载走原生 DownloadManager,看通知栏有没有进度'));
+  }
+});
+</script>
+</body>
+</html>

@@ -39,9 +39,11 @@
     // 这里改只是兜底(脚本是 defer 的,改完会多一次重排)。
     safeArea: 'native',
     // 离线缓存。只在 app 里注册,所以不会影响浏览器访问你的网站。
-    // sw.js 必须放在网站根目录,否则拿不到 '/' 作用域。
+    // sw.js 的地址。作用域自动取它所在的目录,所以这一个值就够了。
+    // 【换成你自己的域名时要改回 '/sw.js'】—— 现在这个子路径是因为
+    // 测试站放在 GitHub Pages 的 /webview-app/ 下面。放根目录才能缓存整个站。
     offlineCache: true,
-    serviceWorkerUrl: '/sw.js',
+    serviceWorkerUrl: '/webview-app/sw.js',
     // iOS 的下载链接交给系统浏览器(安卓有原生 DownloadManager,不走这里)
     interceptDownloadsOnIOS: true,
     downloadExtensions: /\.(pdf|xlsx?|docx?|csv|zip|rar|7z|pptx?|apk|ipa|dmg|mp4|mp3)$/i,
@@ -484,11 +486,16 @@
   var offline = {
     register: function () {
       if (!('serviceWorker' in navigator)) return Promise.resolve(null);
-      return navigator.serviceWorker.register(CONFIG.serviceWorkerUrl, { scope: '/' }).catch(
+      // 作用域就是 sw.js 所在的目录 —— 从 URL 推,不写死 '/'。
+      // SW 拿不到比自己所在目录更宽的作用域,所以写死 '/' 在子路径部署
+      // (GitHub Pages 那种 /仓库名/)下是必错的。根目录部署时这里算出来就是 '/',
+      // 和以前完全一样。
+      var swScope = CONFIG.serviceWorkerUrl.replace(/[^/]*$/, '');
+      return navigator.serviceWorker.register(CONFIG.serviceWorkerUrl, { scope: swScope }).catch(
         function (e) {
-          // 最常见的原因:sw.js 不在网站根目录,或者服务器给它的
+          // 最常见的原因:sw.js 不在它该在的目录,或者服务器给它的
           // Content-Type 不是 JavaScript
-          console.warn('[app-shell] Service Worker 注册失败', e);
+          console.warn('[app-shell] Service Worker 注册失败 (scope=' + swScope + ')', e);
           return null;
         },
       );

@@ -1,0 +1,96 @@
+# 把测试站发到 GitHub Pages。
+#
+# 这是【测试用的】:真站是你自己的域名,那边只要把 website/ 里那几个文件
+# 传到网站根目录就行,不需要这个 workflow。
+#
+# 它干的事:把 test-site/(测试页)和 website/(壳要用的 JS)拼到一起,
+# 推到 gh-pages 分支。Pages 把项目站服务在 /<仓库名>/ 下面,
+# 所以 gh-pages 的根目录 = https://<用户名>.github.io/webview-app/
+#
+# 怎么用: Actions → "Pages (测试站)" → Run workflow
+#
+# ⚠ 子路径带来两个已知限制,换成真域名(站在根目录)就都没有了:
+#   - Service Worker 的作用域只能是 /webview-app/,不能是 /
+#     (app-shell.js 的 serviceWorkerUrl 要跟着指到子路径)
+#   - .well-known 不在域名根目录,所以 App Links / Universal Links 验证不了
+name: Pages (测试站)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'test-site/**'
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: 拼站并推到 gh-pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 拼出要发布的目录
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site
+
+          # 测试页
+          cp test-site/* _site/
+
+          # 壳要用的网站侧 JS —— 和你要传到真站上的是同一份文件
+          cp website/app-shell.js        _site/
+          cp website/app-capabilities.js _site/
+          cp website/app-tabbar.js       _site/
+          cp website/app-push.js         _site/
+          cp website/sw.js               _site/
+          cp website/app-version.json    _site/
+          cp -r website/.well-known      _site/
+
+          # 不让 Jekyll 插手(它会忽略下划线开头的文件,还会乱改东西)
+          touch _site/.nojekyll
+
+          echo "--- 要发布的内容 ---"
+          ls -la _site/
+
+      - name: 确认关键文件都在
+        run: |
+          set -euo pipefail
+          for f in index.html capabilities.html offline-test.html download.html \
+                   test.css test-common.js sample.png sample.pdf \
+                   app-shell.js app-capabilities.js app-tabbar.js sw.js .nojekyll; do
+            test -f "_site/$f" || { echo "::error::_site/$f 不见了"; exit 1; }
+          done
+          # sw.js 的作用域由 app-shell.js 里的路径决定,这里顺手确认它指的是子路径
+          grep -q "serviceWorkerUrl: '/webview-app/sw.js'" _site/app-shell.js \
+            || echo "::warning::app-shell.js 的 serviceWorkerUrl 不是 /webview-app/sw.js —— 子路径下 SW 会注册失败"
+          echo "文件齐了"
+
+      - name: 推到 gh-pages
+        run: |
+          set -euo pipefail
+          cd _site
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "测试站: ${GITHUB_SHA::7}"
+          git push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:gh-pages
+          echo "已推到 gh-pages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 地址
+        run: |
+          echo "::notice::测试站 https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"

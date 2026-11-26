@@ -22,10 +22,12 @@
 
   // ===================== 改这里 =====================
   var ITEMS = [
-    { label: '首页', href: '/', icon: 'home' },
-    { label: '分类', href: '/categories', icon: 'grid' },
-    { label: '购物车', href: '/cart', icon: 'cart' },
-    { label: '我的', href: '/account', icon: 'user' },
+    // 测试站(GitHub Pages)上真存在的四个页。带 /webview-app/ 前缀是因为
+    // Pages 服务在子路径下;换成你自己的域名(站在根目录)时把前缀去掉。
+    { label: '诊断', href: '/webview-app/index.html', icon: 'home' },
+    { label: '能力', href: '/webview-app/capabilities.html', icon: 'grid' },
+    { label: '离线', href: '/webview-app/offline-test.html', icon: 'cart' },
+    { label: '下载', href: '/webview-app/download.html', icon: 'user' },
   ];
 
   var CONFIG = {
