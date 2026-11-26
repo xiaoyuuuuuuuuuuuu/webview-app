@@ -18,5 +18,13 @@
   "updateCheckUrl": "",
 
   "enablePullToRefresh": true,
-  "enablePushNotifications": false
+  "enablePushNotifications": false,
+
+  "_capabilities": "原生能力开关,默认全关。开关只声明权限和 iOS 用途字符串,插件要自己 npm install(包名在 scripts/capabilities.mjs 里)。每开一个都会扩大 WebView 里 XSS 的影响面,见 README 的「安全」一节。",
+  "capabilities": {
+    "scanner": false,
+    "biometric": false,
+    "saveToAlbum": false,
+    "localNotifications": false
+  }
 }

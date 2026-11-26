@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CAPABILITIES, enabledCapabilities, validateCapabilities } from './capabilities.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'app.config.json'), 'utf8'));
@@ -45,6 +46,7 @@ if (cfg.updateCheckUrl) {
     errors.push(`updateCheckUrl 不是合法网址: ${cfg.updateCheckUrl}`);
   }
 }
+errors.push(...validateCapabilities(cfg));
 if (errors.length) {
   console.error('\n✗ app.config.json 有问题:\n');
   errors.forEach((e) => console.error('  • ' + e));
@@ -77,6 +79,40 @@ function patch(path, label, fn) {
     console.log(`✓ ${label}`);
   }
   return true;
+}
+
+/**
+ * 受管区块:两个标记之间的内容整段由脚本重写。
+ *
+ * 关键性质是【关回去没有净改动】—— body 为空时整块(连标记一起)删掉,文件回到
+ * 一个字都不差的原样。标记以换行开头、closeTag 也带换行,所以插入和删除严格互逆。
+ * 这和 enablePushNotifications 关掉时要把 pbxproj 引用清干净是同一个要求:
+ * Info.plist 里留一条没用的用途字符串,Apple 审核就会问这个权限干什么用。
+ */
+function managedBlock(source, beginMark, endMark, body, closeTag) {
+  const b = source.indexOf(beginMark);
+  const e = source.indexOf(endMark);
+  if (b !== -1 && e !== -1 && e > b) {
+    const head = source.slice(0, b);
+    const tail = source.slice(e + endMark.length);
+    return body ? head + beginMark + body + endMark + tail : head + tail;
+  }
+  if (!body) return source;
+  const at = source.lastIndexOf(closeTag);
+  if (at === -1) return source;
+  return source.slice(0, at) + beginMark + body + endMark + source.slice(at);
+}
+
+const CAP_BEGIN_ANDROID =
+  '\n\n    <!-- CAPABILITIES:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->';
+const CAP_END_ANDROID = '\n    <!-- CAPABILITIES:END -->';
+const CAP_BEGIN_IOS =
+  '\n\t<!-- CAPABILITIES:BEGIN 由 scripts/configure.mjs 按 app.config.json 的 capabilities 生成,别手改 -->';
+const CAP_END_IOS = '\n\t<!-- CAPABILITIES:END -->';
+
+const activeCapabilities = enabledCapabilities(cfg);
+if (activeCapabilities.length) {
+  console.log('  已开启的原生能力: ' + activeCapabilities.join(', '));
 }
 
 // ---------- Android ----------
@@ -164,6 +200,18 @@ if (existsSync(join(root, 'android'))) {
     s.replace(/(<data android:scheme="https" android:host=")[^"]*(")/, `$1${siteUrl.host}$2`),
   );
 
+  // 能力开关要的权限。多一个权限 = Google Play 的 Data safety 要多填一条,
+  // 所以关掉的能力必须把权限也撤掉。
+  patch('android/app/src/main/AndroidManifest.xml', 'Android 能力权限', (s) => {
+    const perms = activeCapabilities.flatMap((name) =>
+      CAPABILITIES[name].android.map(
+        (perm) =>
+          '\n    <!-- capabilities.' + name + ' -->\n    <uses-permission android:name="' + perm + '" />',
+      ),
+    );
+    return managedBlock(s, CAP_BEGIN_ANDROID, CAP_END_ANDROID, perms.join(''), '\n</manifest>');
+  });
+
   // 主题色
   const colorsPath = 'android/app/src/main/res/values/colors.xml';
   if (!existsSync(join(root, colorsPath))) {
@@ -199,6 +247,18 @@ if (existsSync(join(root, 'ios'))) {
   patch('ios/App/App.xcodeproj/project.pbxproj', 'iOS bundle id', (s) =>
     s.replace(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/g, `PRODUCT_BUNDLE_IDENTIFIER = ${cfg.appId};`),
   );
+
+  // 能力开关要的 iOS 用途字符串。声明了却没有对应功能,审核会问这个权限干什么用;
+  // 反过来少了用途字符串,调用相机 / 面容 ID 是【直接崩】,不是返回错误。
+  patch('ios/App/App/Info.plist', 'iOS 能力用途字符串', (s) => {
+    const lines = activeCapabilities.flatMap((name) =>
+      Object.entries(CAPABILITIES[name].ios).map(
+        ([key, text]) =>
+          '\n\t<!-- capabilities.' + name + ' -->\n\t<key>' + key + '</key>\n\t<string>' + text + '</string>',
+      ),
+    );
+    return managedBlock(s, CAP_BEGIN_IOS, CAP_END_IOS, lines.join(''), '\n</dict>');
+  });
 
   // entitlements 从模板生成:host 跟着 siteUrl,推送那一项跟着 enablePushNotifications。
   // 多一项 entitlement 就多一条"App ID 要开对应能力"的前提,所以不用的不要留。

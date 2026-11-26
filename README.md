@@ -118,13 +118,104 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 .in-app .app-download-banner { display: none; }
 ```
 
-另外它暴露了 `window.AppShell`:
+另外它暴露了 `window.AppShell` —— 这是网站侧唯一要记的接口。
+
+### AppShell 接口
+
+| 成员 | 说明 |
+|---|---|
+| `AppShell.version` | 壳的版本号。用户装的 app 可能比网站旧好几个版本,调新接口前先看它 |
+| `AppShell.platform` | `'ios'` / `'android'` |
+| `AppShell.has(name)` | 这个能力在不在 |
+| `AppShell.capabilities()` | 一次拿到所有能力的状态,排查时用 |
+| `AppShell.invoke(plugin, method, opts)` | **严格版**调用:失败 reject,`err.code` 可判断 |
+| `AppShell.call(plugin, method, opts)` | **宽松版**:失败一律 `null` |
+| `AppShell.toast(text, ms)` | 提示条 |
+| `AppShell.share({ title, url })` | 调起系统分享 |
+| `AppShell.safeArea()` | 四个方向 inset 的真实像素值 |
+| `AppShell.offline.clear()` | 清 SW 缓存并注销,排查「页面不更新」 |
+| `AppShell.push.register()` | 请求通知权限并注册(要先加载 `app-push.js`) |
+| `AppShell.exit()` | 退出 app(Android) |
+
+**能力要先探测再调**,因为能力是编译期开关决定的。`has()` 问的是 Capacitor
+真实注入的插件列表(`PluginHeaders`),不是配置文件 —— 配置文件会和用户装的版本脱节,这个不会:
 
 ```js
-AppShell.toast('已保存');
-AppShell.share({ title: '看看这个', url: location.href });  // 调起系统分享
-AppShell.platform;  // 'ios' | 'android'
+if (AppShell.has('scanner')) {
+  startScan();
+} else {
+  showManualInput();   // 降级,别提示「出错了」
+}
 ```
+
+**两层调用约定:**
+
+| | 失败时 | 用在哪 |
+|---|---|---|
+| `call()` | 一律 `null` | 壳内部、不关心失败原因的地方 |
+| `invoke()` | reject,带 `err.code` | 新增能力,需要区分失败原因 |
+
+`err.code` 三种值:
+
+| code | 意思 | 该怎么办 |
+|---|---|---|
+| `unsupported` | 这个能力没编进 app(开关关着,或用户装的是旧版壳) | 静默降级 |
+| `nobridge` | 原生 bridge 不在(网站跳到了站外域名) | 静默降级 |
+| `failed` | 插件自己报的错,原始错误在 `err.cause` | 可以提示用户重试 |
+
+**「用户拒绝权限」不算错误。** 权限接口会正常 resolve 出一个 denied 状态,
+所以 `invoke()` 能分清「没这个能力」和「有能力但用户不给权限」——
+`call()` 把两种都变成 `null`,分不出来。这是加 `invoke()` 的唯一理由。
+
+```js
+AppShell.invoke('BarcodeScanner', 'scan', {}).then(function (r) {
+  showResult(r.barcode);
+}).catch(function (e) {
+  if (e.code === 'unsupported') showManualInput();
+  else AppShell.toast('扫码失败,再试一次');
+});
+```
+
+> 加了新接口就把 `app-shell.js` 里的 `SHELL_VERSION` 加一,并同步改这张表。
+> `npm run verify` 会检查导出里有没有 `version` / `invoke` / `has` / `capabilities`。
+
+### 原生能力开关
+
+`app.config.json` 的 `capabilities` 决定壳带哪些原生能力,**默认全关**:
+
+```json
+"capabilities": {
+  "scanner": false,
+  "biometric": false,
+  "saveToAlbum": false,
+  "localNotifications": false
+}
+```
+
+开关做两件事,**它不装插件**:
+
+1. 开的时候往 `AndroidManifest.xml` 和 `Info.plist` 写权限和用途字符串
+2. 关的时候清干净 —— 关回去之后两个文件**字节级回到原样**(和 `enablePushNotifications` 同一个机制)
+
+插件要自己 `npm install`,包名在 `scripts/capabilities.mjs` 里。
+开关开了但插件没装,`npm run verify` 会告诉你装哪个。
+
+| 开关 | 要装的插件 | 它会声明什么 |
+|---|---|---|
+| `scanner` | `@capacitor-mlkit/barcode-scanning` | Android `CAMERA` + iOS `NSCameraUsageDescription` |
+| `biometric` | `@aparajita/capacitor-biometric-auth` | iOS `NSFaceIDUsageDescription`(少了是直接崩,不是报错) |
+| `saveToAlbum` | `@capacitor-community/media` | iOS `NSPhotoLibraryAddUsageDescription`(只写不读) |
+| `localNotifications` | `@capacitor/local-notifications` | 复用已有的 `POST_NOTIFICATIONS` |
+
+> 生物识别**不要用 `capacitor-native-biometric`** —— 它依赖 `@capacitor/core ^3.4.3`,
+> 最后一次发布是 2023-06,停在 Capacitor 3 时代。
+
+**为什么默认全关**:在 WebView 里 XSS 不再只是网页 bug —— 注入的脚本能调用所有已装插件,
+而这几项恰好是摄像头、相册、生物识别这类高价值目标。每开一个都要想清楚值不值,见「安全」一节。
+
+**而且这是过审要求**:Info.plist 里声明了用途字符串却没有对应功能,Apple 会问这个权限干什么用;
+Android 多一个权限,Google Play 的 Data safety 表格就要多填一条。开关把「声明权限」和
+「真的用到」绑在一起,两边都省事。
 
 ---
 

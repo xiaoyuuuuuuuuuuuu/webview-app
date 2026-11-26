@@ -10,6 +10,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CAPABILITIES, enabledCapabilities, validateCapabilities } from './capabilities.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'app.config.json'), 'utf8'));
@@ -47,6 +48,10 @@ console.log('\napp.config.json');
 check('siteUrl 是 https', () => cfg.siteUrl.startsWith('https://') || '必须是 https');
 check('siteUrl 已填写', () => !/CHANGE-ME/i.test(cfg.siteUrl) || '还是占位符');
 check('appId 已填写', () => !/changeme/i.test(cfg.appId) || '还是占位符');
+check('capabilities 开关合法', () => {
+  const errs = validateCapabilities(cfg);
+  return errs.length === 0 || errs.join(';');
+});
 
 // ---------------- Android ----------------
 if (has('android')) {
@@ -122,6 +127,24 @@ if (has('android')) {
       || `列表里没有 ${host}:${JSON.stringify(list)}`;
   });
 
+  check('能力权限与开关一致', () => {
+    const manifest = read('android/app/src/main/AndroidManifest.xml');
+    const active = enabledCapabilities(cfg);
+    const wanted = new Set(active.flatMap((n) => CAPABILITIES[n].android));
+    const bad = [];
+    for (const perm of wanted) {
+      if (!manifest.includes(`android:name="${perm}"`)) bad.push(`少了 ${perm}(先跑 npm run configure)`);
+    }
+    // 关掉的能力不能留着权限 —— 多一个权限 Play 的 Data safety 就要多填一条
+    for (const [name, def] of Object.entries(CAPABILITIES)) {
+      if (active.includes(name)) continue;
+      for (const perm of def.android) {
+        if (manifest.includes(`<!-- capabilities.${name} -->`)) bad.push(`${name} 关着但 Manifest 里还有它的区块`);
+      }
+    }
+    return bad.length === 0 || bad.join(';');
+  });
+
   check('targetSdk >= 36 (Google Play 要求)', () => {
     const m = read('android/variables.gradle').match(/targetSdkVersion\s*=\s*(\d+)/);
     return Number(m?.[1]) >= 36 || `现在是 ${m?.[1]}`;
@@ -174,6 +197,22 @@ if (has('ios')) {
   check('离线页已打包进 app', () =>
     has('ios/App/App/public/offline.html') || '没找到(先跑 npm run sync)');
 
+  check('能力用途字符串与开关一致', () => {
+    const plist = read('ios/App/App/Info.plist');
+    const active = enabledCapabilities(cfg);
+    const bad = [];
+    for (const [name, def] of Object.entries(CAPABILITIES)) {
+      const on = active.includes(name);
+      for (const key of Object.keys(def.ios)) {
+        const present = plist.includes(`<key>${key}</key>`);
+        // 开了却没有 → iOS 上调用会直接崩;关了却留着 → 审核会问这个权限干什么用
+        if (on && !present) bad.push(`${name} 开着但 Info.plist 少 ${key}(先跑 npm run configure)`);
+        if (!on && present) bad.push(`${name} 关着但 Info.plist 还留着 ${key}`);
+      }
+    }
+    return bad.length === 0 || bad.join(';');
+  });
+
   check('用 SPM 而不是 CocoaPods', () =>
     has('ios/App/CapApp-SPM/Package.swift') || '没找到 Package.swift');
 }
@@ -181,6 +220,54 @@ if (has('ios')) {
 // ---------------- 网站侧 ----------------
 console.log('\n网站侧');
 check('app-shell.js 存在', () => has('website/app-shell.js') || '文件丢了');
+// 这一条原来只能靠人记住:safeArea 一个在原生侧、一个在 app-shell.js 的 CONFIG 里,
+// 脚本读不到前者。现在机器来对,不一致会导致刘海屏上内容被挡或者多一条白边。
+check('app-shell.js 的 safeArea 和 app.config.json 一致', () => {
+  const m = read('website/app-shell.js').match(/safeArea:\s*'([^']+)'/);
+  const want = cfg.safeArea || 'native';
+  if (!m) return "app-shell.js 里找不到 CONFIG.safeArea";
+  return m[1] === want || `app-shell.js 里是 '${m[1]}',app.config.json 里是 '${want}'`;
+});
+
+check('app-shell.js 暴露了 AppShell 契约', () => {
+  const js = read('website/app-shell.js');
+  const missing = ['version:', 'invoke:', 'has:', 'capabilities:'].filter((k) => !js.includes(k));
+  return missing.length === 0 || `导出里少了 ${missing.join(' ')}`;
+});
+
+// 插件名写错的后果是 has() 永远返回 false,而且不报错 —— 所以让机器对一遍
+check('能力的插件名两边一致', () => {
+  const js = read('website/app-shell.js');
+  const bad = [];
+  for (const [name, def] of Object.entries(CAPABILITIES)) {
+    // 用 indexOf 找 `name: 'Plugin'`,不写正则 —— 这一行写错的后果是 has() 永远
+    // 返回 false 而且不报错,所以这个检查本身也要尽量简单到不会出错。
+    const marker = name + ": '";
+    const at = js.indexOf(marker);
+    if (at === -1) {
+      bad.push(`app-shell.js 的 CAPABILITY_PLUGIN 里没有 ${name}`);
+      continue;
+    }
+    const rest = js.slice(at + marker.length);
+    const got = rest.slice(0, rest.indexOf("'"));
+    if (got !== def.plugin) {
+      bad.push(`${name}: app-shell.js 写 ${got},capabilities.mjs 写 ${def.plugin}`);
+    }
+  }
+  return bad.length === 0 || bad.join(';');
+});
+
+// 开关开了但插件没装:configure 不会替你装,所以这里提醒一下
+soft('开启的能力都装了插件', () => {
+  const active = enabledCapabilities(cfg);
+  if (!active.length) return true;
+  const pkg = JSON.parse(read('package.json'));
+  const deps = Object.assign({}, pkg.dependencies, pkg.devDependencies);
+  const missing = active.filter((n) => !deps[CAPABILITIES[n].npm]);
+  return missing.length === 0 ||
+    '这些开关开着但插件没装: ' + missing.map((n) => `${n} → npm i ${CAPABILITIES[n].npm}`).join('; ');
+});
+
 soft('app-shell.js 已上传到网站', () => '脚本查不到这个 —— 自己确认 ' + cfg.siteUrl + '/app-shell.js 能打开');
 
 // ---------------- 结果 ----------------

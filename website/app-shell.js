@@ -48,6 +48,10 @@
   };
   // =================================================
 
+  // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
+  // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
+  var SHELL_VERSION = '1.1.0';
+
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
 
@@ -55,14 +59,98 @@
   var root = document.documentElement;
   root.classList.add('in-app', 'in-app-' + platform);
 
-  // 调原生插件的薄封装。插件没装/调用失败都不能让网站崩,所以全部吞掉错误。
+  // ---------- 调用约定 ----------
+  // 两层:call() 宽松(失败一律 null,壳自己的功能都用它,不会让网站崩),
+  //        invoke() 严格(失败 reject,而且带一个能判断的 code)。
+  // 刻意不让 call() 走 invoke() 的能力检查 —— 收起启动页、返回键这些是
+  // 已经在跑的功能,不给它们加新的失败路径。
+
+  /** 最底层:直通 bridge,失败就 reject。没有能力检查。 */
+  function nativeCall(plugin, method, options) {
+    return new Promise(function (resolve, reject) {
+      if (!Cap.nativePromise) {
+        reject(shellError('nobridge', '原生 bridge 不可用(可能跳到了站外域名)'));
+        return;
+      }
+      Cap.nativePromise(plugin, method, options || {}).then(resolve, reject);
+    });
+  }
+
+  /** 宽松版:插件没装、调用失败都吞掉,返回 null。壳内部和老代码都用这个。 */
   function call(plugin, method, options) {
-    try {
-      if (!Cap.nativePromise) return Promise.resolve(null);
-      return Cap.nativePromise(plugin, method, options || {}).catch(function () { return null; });
-    } catch (e) {
-      return Promise.resolve(null);
+    return nativeCall(plugin, method, options).catch(function () { return null; });
+  }
+
+  /**
+   * 严格版:失败会 reject,err.code 可以判断:
+   *   'unsupported' —— 这个能力没编进 app(开关关着,或者用户装的是旧版壳)
+   *   'nobridge'    —— 原生 bridge 不在(网站跳到了站外域名)
+   *   'failed'      —— 插件自己报的错,原始错误在 err.cause 里
+   *
+   * 「用户拒绝权限」不算错误:权限接口会正常 resolve 出一个 denied 状态。
+   * 所以网站能分清「没这个能力」和「有能力但用户不给权限」—— 这是 call() 办不到的,
+   * 它把两种情况都变成了 null。
+   */
+  function invoke(plugin, method, options) {
+    if (Cap.isPluginAvailable && !Cap.isPluginAvailable(plugin)) {
+      return Promise.reject(shellError('unsupported', '这个 app 里没有 ' + plugin + ' 插件'));
     }
+    return nativeCall(plugin, method, options).catch(function (e) {
+      if (e && e.code === 'nobridge') throw e;
+      throw shellError('failed', (e && e.message) || String(e), e);
+    });
+  }
+
+  function shellError(code, message, cause) {
+    var err = new Error(message);
+    err.code = code;
+    if (cause !== undefined) err.cause = cause;
+    return err;
+  }
+
+  // ---------- 能力探测 ----------
+  // 能力名 → 插件在 Capacitor 里注册的名字。
+  // 【必须和 scripts/capabilities.mjs 里的 plugin 字段一致】。
+  var CAPABILITY_PLUGIN = {
+    // 由 app.config.json 的 capabilities 开关决定装不装
+    scanner: 'BarcodeScanner',
+    biometric: 'BiometricAuth',
+    saveToAlbum: 'Media',
+    localNotifications: 'LocalNotifications',
+    // 壳一直都装的 7 个,列出来是为了 has() 对它们也能回答
+    share: 'Share',
+    browser: 'Browser',
+    network: 'Network',
+    push: 'PushNotifications',
+    statusBar: 'StatusBar',
+    splashScreen: 'SplashScreen',
+    app: 'App',
+  };
+
+  /**
+   * 一个能力到底在不在,问 Capacitor,不问配置文件。
+   *
+   * isPluginAvailable 最后查的是原生注入的 Capacitor.PluginHeaders ——
+   * 也就是真的编进这台手机上这个 app 的插件列表。配置文件会和用户装的版本脱节
+   * (网站更新了,用户的 app 还是老的),这个不会。
+   */
+  function has(name) {
+    var plugin = CAPABILITY_PLUGIN[name];
+    if (!plugin) return false;
+    try {
+      return !!(Cap.isPluginAvailable && Cap.isPluginAvailable(plugin));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 一次拿到所有能力的开关状态,排查时很有用 */
+  function capabilities() {
+    var out = {};
+    for (var name in CAPABILITY_PLUGIN) {
+      if (Object.prototype.hasOwnProperty.call(CAPABILITY_PLUGIN, name)) out[name] = has(name);
+    }
+    return out;
   }
   function listen(plugin, event, cb) {
     try {
@@ -420,11 +508,16 @@
     else window.addEventListener('load', function () { offline.register(); }, { once: true });
   }
 
-  // 给网站用:window.AppShell.toast('...') 之类
+  // 给网站用:window.AppShell.toast('...') 之类。
+  // 接口清单见 README 的「AppShell 接口」一节 —— 改这里记得同步改那里和 SHELL_VERSION。
   window.AppShell = {
+    version: SHELL_VERSION,
     platform: platform,
     toast: toast,
     call: call,
+    invoke: invoke,
+    has: has,
+    capabilities: capabilities,
     safeArea: safeArea,
     isSameSite: isSameSite,   // app-push.js 用它拦住推送里的站外 url
     offline: offline,
