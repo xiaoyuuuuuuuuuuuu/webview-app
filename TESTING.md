@@ -233,24 +233,34 @@ CI 会产出一个**未签名 IPA**:
 这通常够定位了。
 
 **第二选择:看 console。** 有些东西只在 console 里,比如
-`[app-shell] Service Worker 注册失败` 那条警告。但**现在连不上**:
+`[app-shell] Service Worker 注册失败` 那条警告。
 
-`capacitor.config.ts` 第 36 行是
+**debug 包直接就能连**,不用改任何配置:
 
-```
-webContentsDebuggingEnabled: false,  // 生产关闭远程调试
-```
+1. 手机开「开发者选项 → USB 调试」,连上数据线
+2. 电脑 Chrome 打开 `chrome://inspect`
+3. 列表里会出现 `testing` 的 WebView,点 **inspect**
 
-要连 `chrome://inspect` 调试,把它改成 `true`,然后重新构建:
+打开的就是标准 DevTools:Console 看日志、Network 看请求、
+Application → Service Workers 看 SW 注册情况。
+
+> **为什么 debug 能连而上架的包不能。** `capacitor.config.ts` 里【刻意没有】
+> `webContentsDebuggingEnabled` 这个键。Capacitor 的默认值就是
+> 「这个包可调试吗」(`CapConfig.java:286`,取 `FLAG_DEBUGGABLE`),
+> 所以 debug 包自动开着、release 包自动关着 —— 正好是我们要的。
+>
+> 注意**只要这个键出现在配置里,显式值就会盖掉那个默认行为**。
+> 所以别为了「更安全」在那儿写一个 `false`:那样连 debug 包的调试口也一起堵死,
+> 而 release 包本来就不会开。(这个项目之前就是写死 `false` 的,已经改掉。)
+
+`adb logcat` 也能看原生侧的日志,想看 Capacitor 自己那些:
 
 ```powershell
-npm run sync
+adb logcat -s Capacitor:V Capacitor/Console:V
 ```
 
-改完推上去跑一次 Android 构建,装新包,电脑 Chrome 打开 `chrome://inspect`
-就能看到 WebView。**测完记得改回 `false`** —— 这个开着上架等于把调试口留给所有人。
-
-iOS 那边是 Mac 上的 Safari → 开发 → 你的 iPhone,同样需要可调试的构建。
+iOS 那边要 Mac 上的 Safari → 开发 → 你的 iPhone。Windows 上没有对应的办法,
+所以 iPhone 这边主要靠页面里的日志区。
 
 ---
 

@@ -33,7 +33,18 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,  // 不允许 https 页面里加载 http 资源
     captureInput: true,
-    webContentsDebuggingEnabled: false,  // 生产关闭远程调试
+    // 这里【刻意不设】 webContentsDebuggingEnabled。
+    //
+    // Capacitor 的默认值就是"这个包可调试吗"(CapConfig.java:286,
+    // 默认取 ApplicationInfo.FLAG_DEBUGGABLE),也就是:
+    //   debug 包   → 远程调试开着,chrome://inspect 连得上
+    //   release 包 → 关着
+    // 这正是我们想要的。
+    //
+    // 以前这里写死 false,看着像"更安全",实际效果是把 debug 包的调试口也堵死了 ——
+    // 真机排查时连 console 都看不到,而 release 包本来就不会开。
+    // 只要这个键【出现在配置里】,显式值就会盖掉那个按构建类型的默认值,
+    // 所以要恢复"按构建类型自动"就必须把这一行整个删掉,不能写 true/false。
   },
 
   ios: {
