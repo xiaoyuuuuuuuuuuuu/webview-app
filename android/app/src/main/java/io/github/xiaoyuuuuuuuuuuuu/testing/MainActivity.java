@@ -1,10 +1,12 @@
-// 本项目对 cap add 生成结果的 Android 改动,五项,都集中在这个文件:
+// 本项目对 cap add 生成结果的 Android 改动,六项,都集中在这个文件:
 //   1. 顶部页面加载进度条
 //   2. 文件下载(WebView 自己不会下载,点下载链接完全没反应)
 //   3. 强制更新提示(做在原生侧,因为 WebView 崩了的时候网页提示也显示不出来)
 //   4. 状态栏图标深浅(Capacitor 自带的 SystemBars 会盖掉配置,见 applySystemBarIcons)
 //   5. 支付跳转:intent:// 链接(东南亚电子钱包常用),Capacitor 自己处理不了,
 //      见 PaymentAwareWebViewClient
+//   6. 打印:网页的 window.print() 在 WebView 里什么都不做,用一个本地插件
+//      ShellPrintPlugin 接到系统打印,见文件末尾
 //
 // 为什么做在原生侧:server.url 模式下跨页导航会销毁整个 JS 环境,新页面的脚本要等
 // HTML 到达才执行 —— 而等 HTML 的那几百毫秒到几秒正是需要显示进度的时间段,
@@ -38,6 +40,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
@@ -64,6 +69,10 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.Logger;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
 
@@ -104,6 +113,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 本地插件必须在 super.onCreate 之前注册:registerPlugin 只是往 builder 里加,
+        // 真正加载发生在 super.onCreate → load() 里(BridgeActivity.java:45-55)
+        registerPlugin(ShellPrintPlugin.class);
         super.onCreate(savedInstanceState);
         installProgressBar();
         installDownloadListener();
@@ -641,6 +653,45 @@ public class MainActivity extends BridgeActivity {
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             return false;
+        }
+    }
+
+    // ---------------------------------------------------------------- 打印
+
+    // 电商站常有「打印订单 / 打印发票」按钮,调的是 window.print()。浏览器里会弹打印
+    // 对话框,但 Android WebView 收到它什么都不做 —— 按钮点了没反应。
+    //
+    // 修法是一个本地插件:app-shell.js 在 app 里把 window.print 换成调这个插件,
+    // 这里用 WebView 自己的 createPrintDocumentAdapter 交给系统打印(PrintManager),
+    // 用户可以选打印机,也可以「存为 PDF」。网站一行不用改。
+    //
+    // 嵌在 MainActivity 里而不是单独一个文件:原生改动集中在一个文件(BUILD_SPEC 1.2)。
+    // 必须是 public static,Capacitor 用反射建实例。
+    @CapacitorPlugin(name = "ShellPrint")
+    public static class ShellPrintPlugin extends Plugin {
+
+        @PluginMethod
+        public void print(PluginCall call) {
+            getActivity().runOnUiThread(() -> {
+                try {
+                    WebView webView = getBridge().getWebView();
+                    PrintManager manager = (PrintManager) getActivity().getSystemService(Context.PRINT_SERVICE);
+                    if (manager == null) {
+                        call.reject("这台设备不支持打印", "UNAVAILABLE");
+                        return;
+                    }
+                    String jobName = call.getString("jobName");
+                    if (jobName == null || jobName.trim().isEmpty()) jobName = webView.getTitle();
+                    if (jobName == null || jobName.trim().isEmpty()) {
+                        jobName = getActivity().getString(R.string.app_name);
+                    }
+                    PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter(jobName);
+                    manager.print(jobName, adapter, new PrintAttributes.Builder().build());
+                    call.resolve();
+                } catch (Exception e) {
+                    call.reject("打印失败: " + e.getMessage(), e);
+                }
+            });
         }
     }
 }

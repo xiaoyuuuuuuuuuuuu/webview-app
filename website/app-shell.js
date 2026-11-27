@@ -18,7 +18,8 @@
  *   8. 深度链接:从外部点进来时跳到对应页面
  *   9. 离线缓存:只在 app 里注册 /sw.js,浏览器访问网站不受影响
  *  10. 网站自己的 navigator.share:Android WebView 没实现,用原生分享补上
- *  11. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
+ *  11. 网站自己的 window.print():两端 WebView 都不理它,接到系统打印
+ *  12. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
  */
 (function () {
   'use strict';
@@ -36,6 +37,8 @@
     autoReconnect: true,
     // 网站自己调 navigator.share 时弹系统分享面板(Android WebView 本身没有这个 API)
     polyfillWebShare: true,
+    // 网站自己调 window.print() 时弹系统打印(两端 WebView 都不理它)
+    nativePrint: true,
     reconnectText: '网络已恢复,正在刷新…',
     externalInAppBrowser: true, // 外链用应用内浏览器(false = 丢给系统浏览器)
     // 网站 JS 调 window.open() 时按和点链接同一套规则分流(iOS 默认会把同站的也扔给 Safari)
@@ -61,7 +64,7 @@
 
   // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
   // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
-  var SHELL_VERSION = '1.6.0';
+  var SHELL_VERSION = '1.7.0';
 
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
@@ -140,6 +143,8 @@
     statusBar: 'StatusBar',
     splashScreen: 'SplashScreen',
     app: 'App',
+    // 壳自己的本地插件(注册在 MainActivity / MainViewController 里,不是 npm 装的)
+    print: 'ShellPrint',
   };
 
   /**
@@ -754,6 +759,23 @@
         return !!(data.title || data.text || data.url);
       });
     }
+  }
+
+  // ---------- 9. 打印:接住网站自己的 window.print() ----------
+  // 电商站常有「打印订单 / 打印发票」按钮,调的是 window.print()。浏览器里会弹打印
+  // 对话框,但 Android WebView 和 WKWebView 收到它都什么都不做 —— 按钮点了没反应。
+  // 这里换成调壳自己的本地插件 ShellPrint,它用 WebView 自带的打印适配器交给系统打印:
+  // 可以选打印机,也可以存成 / 分享成 PDF。网站一行不用改。
+  //
+  // 无条件替换(只要在 app 里):插件不在的话(用户装的是旧版壳)nativeCall 会 reject,
+  // 这里吞掉,结果和替换前一样是什么都不做,不会更糟。
+  // 打印的是当前页面,网站的 @media print 样式照样生效。
+  if (CONFIG.nativePrint) {
+    defineOn(window, 'print', function () {
+      nativeCall('ShellPrint', 'print', { jobName: document.title || '' }).catch(function (e) {
+        console.warn('[app-shell] 打印没成功', e);
+      });
+    });
   }
 
   function defineOn(obj, name, fn) {

@@ -238,6 +238,20 @@ navigator.share({ title: '这双鞋不错', url: '/products/123' })
 - 替身没有 `document`:「开空窗口再 `document.write` 一段 HTML」这种用法不支持
 - 不想要就把 `CONFIG.interceptWindowOpen` 改成 `false`
 
+**网站自己的 `window.print()` 也能用(1.7.0 起)。** 「打印订单 / 打印发票」这种按钮调的是
+`window.print()`,浏览器里会弹打印对话框,但 **Android WebView 和 WKWebView 收到它都
+什么都不做**,按钮点了没反应。壳加了一个本地原生插件 `ShellPrint`(注册在
+`MainActivity` / `MainViewController` 里,不是 npm 装的),`app-shell.js` 在 app 里把
+`window.print` 接到它:
+
+- Android 用 WebView 的 `createPrintDocumentAdapter` 交给系统打印(`PrintManager`),
+  可以选打印机,也可以「存为 PDF」
+- iOS 用 WebView 的 `viewPrintFormatter` 交给系统打印面板,可以选 AirPrint 打印机,
+  也可以分享成 PDF
+- 打印的是当前页面,网站的 `@media print` 样式照样生效
+- `AppShell.has('print')` 可以判断这个壳支不支持(旧版壳没有这个插件)
+- 不想要就把 `CONFIG.nativePrint` 改成 `false`
+
 > 加了新接口就把 `app-shell.js` 里的 `SHELL_VERSION` 加一,并同步改这张表。
 > `npm run verify` 会检查导出里有没有 `version` / `invoke` / `has` / `capabilities`。
 

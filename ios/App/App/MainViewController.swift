@@ -1,5 +1,5 @@
 // 本项目对 cap add 生成结果的 iOS 改动(另一处是 SceneDelegate 里换成这个类):
-// 顶部页面加载进度条 + 侧滑返回 + 强制更新提示。
+// 顶部页面加载进度条 + 侧滑返回 + 强制更新提示 + 打印(本地插件 ShellPrintPlugin)。
 //
 // 为什么只能这样扩展:Capacitor 的 WebViewDelegationHandler 占着 navigationDelegate
 // 和 uiDelegate,而且它在 bridge 里是 public private(set) var —— 外部替换不了。
@@ -50,6 +50,8 @@ class MainViewController: CAPBridgeViewController {
         installProgressView()
         observeProgress()
         checkForRequiredUpdate()
+        // 本地插件:capacitorDidLoad 在第一次加载页面之前调,所以第一页就能看到它
+        bridge?.registerPluginInstance(ShellPrintPlugin())
     }
 
     deinit {
@@ -251,6 +253,51 @@ extension MainViewController {
     }
 
     static var updateGateTag: Int { 0x5547 }
+}
+
+// MARK: - 打印
+
+/// 网页的 window.print() 在 WKWebView 里什么都不做(打印要 app 自己接)。
+/// app-shell.js 在 app 里把 window.print 换成调这个插件,这里用 WebView 自己的
+/// viewPrintFormatter 交给系统打印面板 —— 可以选 AirPrint 打印机,也可以分享成 PDF。
+///
+/// 放在这个文件里而不是新建一个:新文件要登记进 project.pbxproj,原生改动也要集中。
+@objc(ShellPrintPlugin)
+public class ShellPrintPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "ShellPrintPlugin"
+    public let jsName = "ShellPrint"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "print", returnType: CAPPluginReturnPromise)
+    ]
+
+    // JS 侧的方法名是 print,对应的 Objective-C selector 是 print: ——
+    // Swift 里换个名字,免得在类里遮住全局的 print 函数
+    @objc(print:) func printPage(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let webView = self.bridge?.webView else {
+                call.reject("WebView 不在")
+                return
+            }
+            guard UIPrintInteractionController.isPrintingAvailable else {
+                call.reject("这台设备不支持打印", "UNAVAILABLE")
+                return
+            }
+            let info = UIPrintInfo(dictionary: nil)
+            info.outputType = .general
+            info.jobName = call.getString("jobName") ?? webView.title ?? ""
+
+            let controller = UIPrintInteractionController.shared
+            controller.printInfo = info
+            controller.printFormatter = webView.viewPrintFormatter()
+            controller.present(animated: true) { _, completed, error in
+                if let error = error {
+                    call.reject("打印失败: \(error.localizedDescription)")
+                } else {
+                    call.resolve(["completed": completed])
+                }
+            }
+        }
+    }
 }
 
 private extension UIColor {

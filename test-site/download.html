@@ -141,6 +141,15 @@
     <button id="geo-get">用 navigator.geolocation 取一次位置</button>
   </div>
 
+  <h2 id="print">9. 网页自己的打印(window.print)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    这个按钮调的是<strong>标准的</strong> <code>window.print()</code>。
+    改之前两端 WebView 收到它都什么都不做;现在应该弹系统打印界面,可以存成 PDF。
+  </p>
+  <div class="card">
+    <button id="print-page">打印这一页</button>
+  </div>
+
   <h2>认得出哪些扩展名</h2>
   <div class="card"><code id="exts"></code></div>
 
@@ -177,6 +186,17 @@
   window.addEventListener('hashchange', showIfBack);
   document.addEventListener('DOMContentLoaded', showIfBack);
 })();
+
+// ⑨ 网页自己的打印
+document.addEventListener('DOMContentLoaded', function () {
+  var btn = document.getElementById('print-page');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var A = window.AppShell;
+    T.log('调 window.print()' + (A && A.has ? ',AppShell.has(\'print\')=' + A.has('print') : ''));
+    window.print();
+  });
+});
 
 // ⑧ 网页自己的定位
 document.addEventListener('DOMContentLoaded', function () {
