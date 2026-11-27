@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 scripts/configure.mjs 按 app.config.json 生成,别手改 -->
+<resources>
+    <color name="statusBarBackground">#1565C0</color>
+    <bool name="statusBarDarkIcons">false</bool>
+</resources>

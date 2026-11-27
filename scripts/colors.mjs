@@ -25,6 +25,23 @@ export function relativeLuminance(hex) {
  * 和白字的对比度,哪个高用哪个。两者相等的点在亮度 ≈ 0.179,所以像 #1565C0 这种
  * 看着"不算太暗"的品牌蓝(亮度 ≈ 0.13)会选白字 —— 这和肉眼判断一致。
  */
+export function contrastRatio(hexA, hexB) {
+  const [hi, lo] = [relativeLuminance(hexA), relativeLuminance(hexB)].sort((a, b) => b - a);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * app 运行时状态栏该用深色图标吗?按 app.config.json 的 statusBarStyle:
+ *   auto  → 按背景算(prefersDarkIcons)
+ *   light → 深色图标(Capacitor 的命名:"浅色背景用的样式")
+ *   dark  → 白色图标
+ */
+export function statusBarWantsDarkIcons(style, background) {
+  if (style === 'light') return true;
+  if (style === 'dark') return false;
+  return prefersDarkIcons(background);
+}
+
 export function prefersDarkIcons(hex) {
   const L = relativeLuminance(hex);
   const contrastWithBlack = (L + 0.05) / 0.05;

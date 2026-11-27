@@ -11,7 +11,8 @@
   "splashBackground": "#ffffff",
   "_splashBackgroundDark": "深色模式下启动页的背景色,留空就和上面 splashBackground 一样。网站有深色模式的话填网站的深色背景色,不然深色模式下冷启动会先白一下。",
   "splashBackgroundDark": "",
-  "statusBarStyle": "light",
+  "_statusBarStyle": "状态栏图标深浅。auto = 自动挑看得清的(推荐);light = 深色图标;dark = 白色图标。Android 的状态栏底色就是 themeColor,auto 按它算;iOS 的状态栏底下是页面背景,auto 跟系统深浅色走。",
+  "statusBarStyle": "auto",
 
   "_safeArea": "native = 原生把 WebView 让开系统栏(默认,网站不用改);cover = 内容铺到屏幕边缘,网站 CSS 必须自己让开",
   "safeArea": "native",

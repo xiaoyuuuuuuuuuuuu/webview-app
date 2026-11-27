@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
@@ -9,10 +9,27 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <!--
+      app 运行时的主题。状态栏(还有底部导航条那一条)的颜色和图标深浅都从这里来:
+
+        windowBackground   Capacitor 8 的 SystemBars 插件把系统栏设成透明,给 decorView
+                           加上系统栏那么高的 padding,再把 decorView 背景设成这一项 ——
+                           透明的状态栏底下露出来的就是它。以前没设,露出来的是 AppCompat
+                           默认的 #FAFAFA(深色模式 #303030),themeColor 根本没用上。
+                           StatusBar 插件的 backgroundColor 走 setStatusBarColor,
+                           Android 15+ 直接忽略,所以颜色只能从这里给。
+        windowLight*Bar    图标深浅。SystemBars 会按系统深浅色盖掉它,MainActivity 在它
+                           之后补设;这里也写上,给启动页收起时"按主题恢复系统栏"那条路径。
+
+      值由 scripts/configure.mjs 按 app.config.json 写进 values/statusbar.xml。
+    -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/statusBarBackground</item>
+        <item name="android:windowLightStatusBar">@bool/statusBarDarkIcons</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/statusBarDarkIcons</item>
     </style>
 
 

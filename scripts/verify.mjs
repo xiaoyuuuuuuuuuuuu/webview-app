@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAPABILITIES, enabledCapabilities, validateCapabilities } from './capabilities.mjs';
-import { prefersDarkIcons } from './colors.mjs';
+import { prefersDarkIcons, statusBarWantsDarkIcons, contrastRatio } from './colors.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'app.config.json'), 'utf8'));
@@ -251,6 +251,56 @@ if (has('android')) {
       bad.push('没配 splashBackgroundDark,但 values-night/splash.xml 还在 —— 深色模式会用它而不是 splashBackground');
     }
     return bad.length === 0 || bad.join(';');
+  });
+
+  // 【真机查出来的】themeColor / statusBarStyle 以前在 Android 内容页上都没生效:
+  // 状态栏是 AppCompat 默认的 #FAFAFA(深色模式 #303030),图标跟着系统走。
+  // 三处缺一处就又回去了:主题引用、生成的资源、MainActivity 在 SystemBars 之后补设。
+  check('状态栏接上了 themeColor 和 statusBarStyle', () => {
+    const bad = [];
+    const styles = read('android/app/src/main/res/values/styles.xml');
+    const m = styles.match(/<style name="AppTheme\.NoActionBar"[\s\S]*?<\/style>/);
+    if (!m) return 'styles.xml 里找不到 AppTheme.NoActionBar';
+    for (const [k, v] of [
+      ['android:windowBackground', '@color/statusBarBackground'],
+      ['android:windowLightStatusBar', '@bool/statusBarDarkIcons'],
+      ['android:windowLightNavigationBar', '@bool/statusBarDarkIcons'],
+    ]) {
+      if (!new RegExp(`<item name="${k}"[^>]*>${v}</item>`).test(m[0])) bad.push(`主题少了 ${k}=${v}`);
+    }
+
+    const resPath = 'android/app/src/main/res/values/statusbar.xml';
+    if (!has(resPath)) {
+      bad.push('values/statusbar.xml 不在(先跑 npm run configure)');
+    } else {
+      const x = read(resPath);
+      const color = (x.match(/<color name="statusBarBackground">([^<]*)<\/color>/) || [])[1];
+      const dark = (x.match(/<bool name="statusBarDarkIcons">([^<]*)<\/bool>/) || [])[1];
+      if ((color || '').toLowerCase() !== String(cfg.themeColor).toLowerCase()) {
+        bad.push(`状态栏底色是 ${color},themeColor 是 ${cfg.themeColor}`);
+      }
+      const want = String(statusBarWantsDarkIcons(cfg.statusBarStyle, cfg.themeColor));
+      if (dark !== want) bad.push(`状态栏图标深浅是 ${dark},按 statusBarStyle "${cfg.statusBarStyle}" 应该是 ${want}`);
+    }
+
+    const main = read(join('android/app/src/main/java', ...cfg.appId.split('.'), 'MainActivity.java'));
+    const posted = /handler\.post\(this::applySystemBarIcons\)/.test(main);
+    const onConfig = /void onConfigurationChanged\([^)]*\)\s*\{[^}]*applySystemBarIcons\(\)/.test(main);
+    if (!posted || !onConfig) {
+      bad.push('MainActivity 没在 SystemBars 之后补设图标(onCreate 里的 post 和 onConfigurationChanged 两处都要有)' +
+        ' —— 少了的话图标会被 SystemBars 改成跟系统走');
+    }
+    return bad.length === 0 || bad.join(';');
+  });
+
+  soft('状态栏图标在 themeColor 上看得清', () => {
+    if (cfg.statusBarStyle === 'auto') return true;
+    const dark = statusBarWantsDarkIcons(cfg.statusBarStyle, cfg.themeColor);
+    if (dark === prefersDarkIcons(cfg.themeColor)) return true;
+    const mine = contrastRatio(cfg.themeColor, dark ? '#000000' : '#ffffff');
+    const other = contrastRatio(cfg.themeColor, dark ? '#ffffff' : '#000000');
+    return `statusBarStyle "${cfg.statusBarStyle}" 在 themeColor ${cfg.themeColor} 上是${dark ? '深色' : '白色'}图标,` +
+      `对比度 ${mine.toFixed(2)};换成${dark ? '白色' : '深色'}是 ${other.toFixed(2)}。改成 "auto" 会自动选`;
   });
 
   check('targetSdk >= 36 (Google Play 要求)', () => {

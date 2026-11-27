@@ -1,7 +1,8 @@
-// 本项目对 cap add 生成结果的 Android 改动,三项,都集中在这个文件:
+// 本项目对 cap add 生成结果的 Android 改动,四项,都集中在这个文件:
 //   1. 顶部页面加载进度条
 //   2. 文件下载(WebView 自己不会下载,点下载链接完全没反应)
 //   3. 强制更新提示(做在原生侧,因为 WebView 崩了的时候网页提示也显示不出来)
+//   4. 状态栏图标深浅(Capacitor 自带的 SystemBars 会盖掉配置,见 applySystemBarIcons)
 //
 // 为什么做在原生侧:server.url 模式下跨页导航会销毁整个 JS 环境,新页面的脚本要等
 // HTML 到达才执行 —— 而等 HTML 的那几百毫秒到几秒正是需要显示进度的时间段,
@@ -27,6 +28,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -49,6 +51,8 @@ import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -97,6 +101,33 @@ public class MainActivity extends BridgeActivity {
         installProgressBar();
         installDownloadListener();
         checkForRequiredUpdate();
+        // 插件在 super.onCreate 里同步 load,SystemBars 在 load 里 post 了一次 setStyle;
+        // 同一个主线程队列先进先出,这里 post 的就排在它后面
+        handler.post(this::applySystemBarIcons);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);   // SystemBars 在这里面同步再设一次
+        applySystemBarIcons();
+    }
+
+    /**
+     * 状态栏和底部导航条的图标深浅,按 app.config.json 的 statusBarStyle
+     * (configure.mjs 算好写进 R.bool.statusBarDarkIcons)。
+     *
+     * 为什么要在这里补设:Capacitor 8 核心自带的 SystemBars 插件默认 style DEFAULT
+     * (跟系统深浅色),load 时设一次、每次配置变化(比如切深色模式)再设一次,
+     * 会盖掉 StatusBar 插件和主题里的设置。真机实测:配置的 statusBarStyle "light"
+     * 在深色模式下没生效,图标跟着系统变成了白的。
+     * 底色不在这里管:它是主题的 windowBackground,见 styles.xml。
+     */
+    private void applySystemBarIcons() {
+        boolean darkIcons = getResources().getBoolean(R.bool.statusBarDarkIcons);
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(darkIcons);
+        controller.setAppearanceLightNavigationBars(darkIcons);
     }
 
     // BridgeActivity.onDestroy() 是 public,Java 不允许重写时收窄可见性,

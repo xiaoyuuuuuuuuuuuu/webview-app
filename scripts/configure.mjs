@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAPABILITIES, enabledCapabilities, validateCapabilities } from './capabilities.mjs';
-import { HEX_COLOR, prefersDarkIcons } from './colors.mjs';
+import { HEX_COLOR, prefersDarkIcons, statusBarWantsDarkIcons } from './colors.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'app.config.json'), 'utf8'));
@@ -53,6 +53,9 @@ if (!HEX_COLOR.test(cfg.splashBackground || '')) {
 }
 if (cfg.splashBackgroundDark && !HEX_COLOR.test(cfg.splashBackgroundDark)) {
   errors.push(`splashBackgroundDark 要是 #RRGGBB 格式,或者留空: ${cfg.splashBackgroundDark}`);
+}
+if (!['auto', 'light', 'dark'].includes(cfg.statusBarStyle)) {
+  errors.push(`statusBarStyle 只能是 "auto"、"light" 或 "dark": ${cfg.statusBarStyle}`);
 }
 if (cfg.safeArea !== undefined && cfg.safeArea !== 'native' && cfg.safeArea !== 'cover') {
   errors.push(`safeArea 只能是 "native" 或 "cover": ${cfg.safeArea}`);
@@ -348,6 +351,25 @@ if (existsSync(join(root, 'android'))) {
     if (readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
     console.log('✓ 去掉深色模式启动页(splashBackgroundDark 没配,深色模式用浅色那套)');
   }
+
+  // ---------- 状态栏(app 运行时) ----------
+  //
+  // 【真机查出来的】以前 themeColor 和 statusBarStyle 在 Android 内容页上都没生效:
+  // 状态栏是 AppCompat 默认窗口色 #FAFAFA(深色模式 #303030),图标跟着系统深浅色走。
+  // Capacitor 8 核心的 SystemBars 插件把系统栏设成透明、把 decorView 背景设成主题的
+  // windowBackground,还按系统深浅色设图标 —— StatusBar 插件的配置全被盖掉。
+  // 现在主题的 windowBackground 和图标深浅引用这里写的两个值,MainActivity 在
+  // SystemBars 之后补设图标。见 styles.xml 和 MainActivity.applySystemBarIcons。
+  writeIfChanged(
+    'android/app/src/main/res/values/statusbar.xml',
+    '<?xml version="1.0" encoding="utf-8"?>\n' +
+      `<!-- ${SPLASH_MARK} -->\n` +
+      '<resources>\n' +
+      `    <color name="statusBarBackground">${cfg.themeColor}</color>\n` +
+      `    <bool name="statusBarDarkIcons">${statusBarWantsDarkIcons(cfg.statusBarStyle, cfg.themeColor)}</bool>\n` +
+      '</resources>\n',
+    'Android 状态栏颜色和图标',
+  );
 }
 
 // ---------- iOS ----------

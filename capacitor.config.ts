@@ -72,7 +72,10 @@ const config: CapacitorConfig = {
       splashImmersive: false,
     },
     StatusBar: {
-      style: appConfig.statusBarStyle === 'light' ? 'LIGHT' : 'DARK',
+      // 'light' = 浅色背景用的样式(深色图标),'dark' 反过来,'auto' = 跟系统深浅色。
+      // iOS 用这个值。Android 上 SystemBars 会盖掉它,真正生效的是 MainActivity
+      // 按 R.bool.statusBarDarkIcons 补设的那次(auto 在 Android 上按 themeColor 算)。
+      style: appConfig.statusBarStyle === 'light' ? 'LIGHT' : appConfig.statusBarStyle === 'dark' ? 'DARK' : 'DEFAULT',
       backgroundColor: appConfig.themeColor,
       overlaysWebView: false,
     },
