@@ -249,6 +249,7 @@ navigator.share({ title: '这双鞋不错', url: '/products/123' })
 "capabilities": {
   "scanner": false,
   "cameraUpload": false,
+  "webLocation": false,
   "biometric": false,
   "saveToAlbum": false,
   "localNotifications": false,
@@ -313,6 +314,21 @@ navigator.share({ title: '这双鞋不错', url: '/products/123' })
 >
 > 文案在 `scripts/capabilities.mjs` 的 `cameraUpload.ios` 里,上线前按你站上的
 > 真实用途改一下,比如「上传头像和评价图片时需要使用相机」。
+
+> #### 网页自己的定位(`webLocation`)
+>
+> 网站调 `navigator.geolocation`(附近门店、送货地址自动填)在 app 里**默认是坏的**,
+> 两端都是:Capacitor 会把网页的定位请求桥接到系统权限,但**前提是权限已经声明**。
+> Android 上没声明的权限一请求就被系统直接拒绝,连对话框都不弹,网站只收到
+> `PERMISSION_DENIED`;iOS 没有 `NSLocationWhenInUseUsageDescription` 也一样拿不到。
+>
+> 网站用到定位就打开 `"webLocation": true`,`npm run sync`。它声明 Android 的
+> `ACCESS_COARSE_LOCATION` + `ACCESS_FINE_LOCATION`(两个都要:Android 11 及以下
+> 必须两个都给才算成功)和 iOS 的用途字符串,**不装插件**。
+>
+> 默认关的理由:声明了定位,Play 的 Data safety 要多填一条,App Store 审核会问用途。
+> iOS 上 WKWebView 除了系统的定位授权,可能还会再弹一次「某某网站想使用你的位置」,
+> 这是 WebKit 自己的行为,壳里改不了。
 
 **为什么默认全关**:在 WebView 里 XSS 不再只是网页 bug —— 注入的脚本能调用所有已装插件,
 而这几项恰好是摄像头、相册、生物识别这类高价值目标。每开一个都要想清楚值不值,见「安全」一节。

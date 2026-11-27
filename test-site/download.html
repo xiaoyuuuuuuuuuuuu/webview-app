@@ -131,6 +131,16 @@
     <button id="wo-late">③ 先开空窗口,一秒后再给 location 赋值</button>
   </div>
 
+  <h2 id="geo">8. 网页自己的定位(navigator.geolocation)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    <code>webLocation</code> 开关<strong>默认关</strong>。关着的时候点下面的按钮,
+    应该<strong>连对话框都不弹</strong>就直接拿到「拒绝」—— 这就是开关要修的问题。
+    打开开关、重新出包之后再点,应该弹系统的定位授权。
+  </p>
+  <div class="card">
+    <button id="geo-get">用 navigator.geolocation 取一次位置</button>
+  </div>
+
   <h2>认得出哪些扩展名</h2>
   <div class="card"><code id="exts"></code></div>
 
@@ -167,6 +177,24 @@
   window.addEventListener('hashchange', showIfBack);
   document.addEventListener('DOMContentLoaded', showIfBack);
 })();
+
+// ⑧ 网页自己的定位
+document.addEventListener('DOMContentLoaded', function () {
+  var btn = document.getElementById('geo-get');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    if (!navigator.geolocation) { T.log('navigator.geolocation 不存在'); return; }
+    T.log('请求定位…');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      T.log('拿到了: ' + pos.coords.latitude.toFixed(4) + ', ' + pos.coords.longitude.toFixed(4) +
+        '(精度 ' + Math.round(pos.coords.accuracy) + ' 米)');
+    }, function (err) {
+      var names = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+      T.log('没拿到: ' + (names[err.code] || err.code) + ' ' + err.message +
+        (err.code === 1 ? ' —— 没弹对话框就拒绝了的话,是 webLocation 开关没开' : ''));
+    }, { timeout: 15000, maximumAge: 60000 });
+  });
+});
 
 // ⑦ window.open 的三种写法
 document.addEventListener('DOMContentLoaded', function () {

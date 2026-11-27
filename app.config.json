@@ -30,6 +30,7 @@
   "capabilities": {
     "scanner": false,
     "cameraUpload": false,
+    "webLocation": false,
     "biometric": true,
     "saveToAlbum": true,
     "localNotifications": true,

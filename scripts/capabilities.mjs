@@ -91,6 +91,28 @@ export const CAPABILITIES = {
     },
     android: [],
   },
+  // 网页自己的定位:navigator.geolocation(附近门店、送货地址自动填写)。
+  //
+  // 【不装插件】。Capacitor 原生已经把网页的定位请求桥接到了系统权限
+  // (BridgeWebChromeClient.onGeolocationPermissionsShowPrompt,会在运行时请求
+  // ACCESS_COARSE_LOCATION + ACCESS_FINE_LOCATION)。但桥接的前提是权限已经声明:
+  // 没声明的权限一请求就被系统直接拒绝,连对话框都不弹 —— 网站只收到 PERMISSION_DENIED。
+  // iOS 同理,没有 NSLocationWhenInUseUsageDescription 定位请求不会成功。
+  // BUILD_SPEC 1.3 说"定位用 navigator.geolocation 就行",只对了一半,缺的就是这个开关。
+  //
+  // Android 两个都要声明:Capacitor 两个一起请求。Android 12+ 只给大概位置也算成功,
+  // 但 11 及以下必须两个都给才算 —— 只声明 COARSE 的话老手机上永远是拒绝。
+  //
+  // 默认关:声明了定位,Google Play 的 Data safety 要多填一条,App Store 审核会问用途。
+  // 网站真的用到定位再开。
+  webLocation: {
+    plugin: null,
+    npm: null,
+    ios: {
+      NSLocationWhenInUseUsageDescription: '查找附近的门店、自动填写送货地址时需要使用你的位置。',
+    },
+    android: ['android.permission.ACCESS_COARSE_LOCATION', 'android.permission.ACCESS_FINE_LOCATION'],
+  },
   biometric: {
     // 注册名实测是 BiometricAuthNative(@CapacitorPlugin(name = "BiometricAuthNative")),
     // 不是包名暗示的 BiometricAuth。写错 has() 会永远返回 false 且不报错。
