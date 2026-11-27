@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover 只在 app.config.json 的 safeArea 改成 cover 时才需要。
+     现在是 native,原生已经把 WebView 让开系统栏了,所以这里【不加】。 -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>壳诊断 · testing</title>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1>壳诊断</h1>
+  <p class="sub">这一页只读不写,用来确认壳到底装进来了什么。</p>
+
+  <div class="note stop" id="no-shell" hidden>
+    <strong>现在是在普通浏览器里。</strong>
+    <code>window.AppShell</code> 不存在,所以下面「壳」那部分全是空的 ——
+    这是对的,<code>app-shell.js</code> 只在 app 里才初始化。
+    要看真实情况得把 app 装到手机上打开。
+  </div>
+
+  <h2>壳</h2>
+  <div class="card" id="shell-info"></div>
+
+  <h2>能力</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    问的是 <code>Capacitor.isPluginAvailable()</code>,也就是原生真实注入的插件列表 ——
+    不是配置文件说了什么。<code>scanner</code> 应该是「不在」(开关关着,插件也卸了)。
+  </p>
+  <div class="card" id="caps"></div>
+
+  <h2>安全区 (safe area)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    <code>safeArea: "native"</code> 下这四个值<strong>应该全是 0</strong> ——
+    原生已经把 WebView 让开系统栏了,页面不需要再让。全是 0 才是对的。
+  </p>
+  <div class="card" id="safe"></div>
+
+  <h2>Service Worker</h2>
+  <div class="card" id="sw"></div>
+
+  <h2>环境</h2>
+  <div class="card" id="env"></div>
+
+  <nav class="pages">
+    <a href="capabilities.html">能力测试 →</a>
+    <a href="offline-test.html">离线测试 →</a>
+    <a href="download.html">下载测试 →</a>
+  </nav>
+
+  <div id="log"></div>
+</div>
+
+<script src="test-common.js"></script>
+<script src="app-shell.js" defer></script>
+<script src="app-capabilities.js" defer></script>
+<script src="app-tabbar.js" defer></script>
+<script>
+window.addEventListener('load', function () {
+  var A = window.AppShell;
+  T.requireShell('no-shell');
+
+  // ---- 壳 ----
+  T.renderPairs(document.getElementById('shell-info'), [
+    ['AppShell 在不在', !!A],
+    ['AppShell.version', A && A.version],
+    ['AppShell.platform', A && A.platform],
+    ['AppShell.invoke', !!(A && A.invoke)],
+    ['AppShell.has', !!(A && A.has)],
+    ['AppShell.notify (第 3 步)', !!(A && A.notify)],
+    ['AppShell.copy (第 3 步)', !!(A && A.copy)],
+    ['AppShell.haptic', !!(A && A.haptic)],
+    ['AppShell.reconnect', !!(A && A.reconnect)],
+    ['window.Capacitor', !!window.Capacitor],
+    ['Capacitor.isNativePlatform', !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())],
+    ['<html> 有 .in-app 吗', document.documentElement.classList.contains('in-app')],
+  ]);
+
+  // ---- 能力 ----
+  var capsEl = document.getElementById('caps');
+  if (A && A.capabilities) {
+    var c = A.capabilities();
+    var names = Object.keys(c);
+    T.renderPairs(capsEl, names.map(function (n) { return [n, c[n]]; }));
+    var on = names.filter(function (n) { return c[n]; });
+    T.log('能力探测完成,在的 ' + on.length + ' 个: ' + on.join(', '), 'ok');
+    if (c.scanner) T.log('注意:scanner 居然是「在」—— 开关应该是关着的,查一下 app.config.json', 'err');
+  } else {
+    capsEl.innerHTML = '<p class="sub" style="margin:0">没有 AppShell.capabilities(),读不到。</p>';
+  }
+
+  // ---- safe area ----
+  var safeEl = document.getElementById('safe');
+  if (A && A.safeArea) {
+    var s = A.safeArea();
+    T.renderPairs(safeEl, [
+      ['top', s.top + ' px'], ['right', s.right + ' px'],
+      ['bottom', s.bottom + ' px'], ['left', s.left + ' px'],
+      ['--app-bottom-inset (Tab 栏自己发布的高度)',
+        getComputedStyle(document.documentElement).getPropertyValue('--app-bottom-inset').trim() || '(没设)'],
+    ]);
+  } else {
+    safeEl.innerHTML = '<p class="sub" style="margin:0">没有 AppShell.safeArea()。</p>';
+  }
+
+  // ---- SW ----
+  var swEl = document.getElementById('sw');
+  if (!('serviceWorker' in navigator)) {
+    T.renderPairs(swEl, [['浏览器支持 Service Worker', false]]);
+  } else {
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      T.renderPairs(swEl, [
+        ['注册数量', regs.length],
+        ['作用域 scope', regs.length ? regs.map(function (r) { return r.scope; }).join(', ') : '(没有注册)'],
+        ['状态', regs.length ? (regs[0].active ? 'active' : (regs[0].installing ? 'installing' : 'waiting')) : '—'],
+      ]);
+      if (!regs.length) {
+        T.log('没有 SW 注册。在普通浏览器里这是对的(app-shell.js 刻意只在 app 里注册);'
+            + '在 app 里就说明注册失败了,看 console 的 [app-shell] 那条警告。');
+      } else {
+        T.log('SW 已注册,scope=' + regs[0].scope, 'ok');
+      }
+    });
+  }
+
+  // ---- 环境 ----
+  T.renderPairs(document.getElementById('env'), [
+    ['location.href', location.href],
+    ['location.pathname', location.pathname],
+    ['屏幕', window.innerWidth + ' × ' + window.innerHeight + '  dpr=' + (window.devicePixelRatio || 1)],
+    ['User-Agent', navigator.userAgent],
+    ['UA 里有 WebViewApp 标记吗', navigator.userAgent.indexOf('WebViewApp/') !== -1],
+  ]);
+});
+</script>
+</body>
+</html>

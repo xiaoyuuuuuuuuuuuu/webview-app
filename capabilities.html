@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>能力测试 · testing</title>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1>能力测试</h1>
+  <p class="sub">每个按钮点一下,结果打在最下面的日志里。真机上才有意义。</p>
+
+  <div class="note stop" id="no-shell" hidden>
+    <strong>现在是在普通浏览器里</strong>,所有按钮都禁用了。
+    <code>app-shell.js</code> 只在 app 里初始化。
+  </div>
+
+  <div class="note">
+    <strong>看日志里的 <code>code</code>。</strong>
+    <code>unsupported</code> = 这个能力没编进 app;
+    <code>denied</code> = 用户拒了权限;
+    <code>nobridge</code> = 跳到站外了;
+    <code>failed</code> = 插件自己报的错(原始错误会跟在下一行)。
+  </div>
+
+  <h2>生物识别</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    <code>verify</code> 成功只证明「手机的主人在场」,<strong>不等于登录</strong>。
+    用户按取消也会走 catch —— 那不是故障。
+  </p>
+  <div class="card">
+    <button data-needs-shell onclick="doCheck()">check() 能不能用</button>
+    <button data-needs-shell class="primary" onclick="doVerify()">verify() 弹验证</button>
+  </div>
+
+  <h2>保存到相册</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    两个按钮走的是不同的输入:一个给网址,一个给 <code>data:</code> base64。
+    Android 会按 <code>CONFIG.albumName</code>(现在是 <code>testing</code>)找/建相册,
+    iOS 不指定相册、走只写权限。<strong>存完去系统相册里看一眼有没有真的出现。</strong>
+  </p>
+  <div class="card">
+    <img src="sample.png" alt="示例图" width="96" height="96"
+         style="border:1px solid var(--line);border-radius:8px;vertical-align:middle;margin-right:10px">
+    <button data-needs-shell class="primary" onclick="doSaveUrl()">存这张图(网址)</button>
+    <button data-needs-shell onclick="doSaveData()">存一张 data: 图</button>
+  </div>
+
+  <h2>本地通知</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    <strong>不是推送</strong> —— 这是手机自己排的,不经服务器。
+    「10 秒后」那个点完<strong>把 app 切后台</strong>,通知才显眼。
+    我们刻意撤掉了精确闹钟权限(<code>SCHEDULE_EXACT_ALARM</code>,带着它过不了 Play 审核),
+    所以系统可能晚几秒到几分钟才弹 —— <strong>那是预期行为,不是 bug</strong>。
+  </p>
+  <div class="card">
+    <button data-needs-shell class="primary" onclick="doNotifyNow()">立刻弹一条</button>
+    <button data-needs-shell onclick="doNotifyLater()">10 秒后弹(id 9001)</button>
+    <button data-needs-shell onclick="doCancel()">取消 id 9001</button>
+  </div>
+
+  <h2>剪贴板</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    <strong>只有写</strong>,刻意没有读。点完去别的输入框长按粘贴验证。
+  </p>
+  <div class="card">
+    <input id="copytext" value="ORD-20261126-0001"
+           style="font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:14rem;max-width:100%">
+    <button data-needs-shell class="primary" onclick="doCopy()">复制</button>
+  </div>
+
+  <h2>设备 ID</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    卸载重装会变,<strong>不能当账号用</strong>。
+  </p>
+  <div class="card">
+    <button data-needs-shell class="primary" onclick="doDeviceId()">读一下</button>
+  </div>
+
+  <h2>评分弹窗</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    <strong>什么都没弹是正常的</strong> —— 两端系统都有频率限制,而且 API 不告诉你弹没弹。
+    debug 包基本上弹不出来。日志里出现「已调用」就算过。
+  </p>
+  <div class="card">
+    <button data-needs-shell class="primary" onclick="doReview()">请求评分</button>
+  </div>
+
+  <h2>触觉反馈</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    <strong>这一项要用手感,不看日志。</strong>七个按钮震感应该不一样。
+    iOS <strong>模拟器完全没感觉,必须真机</strong>;
+    设备没马达、系统关了振动、静音模式都会让它什么都不发生 —— 那不是错误。
+  </p>
+  <div class="card">
+    <button data-needs-shell onclick="doHaptic('light')">light</button>
+    <button data-needs-shell onclick="doHaptic('medium')">medium</button>
+    <button data-needs-shell onclick="doHaptic('heavy')">heavy</button>
+    <button data-needs-shell class="primary" onclick="doHaptic('success')">success</button>
+    <button data-needs-shell onclick="doHaptic('warning')">warning</button>
+    <button data-needs-shell onclick="doHaptic('error')">error</button>
+    <button data-needs-shell onclick="doHaptic('select')">select</button>
+  </div>
+
+  <h2>自动重连</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    网络恢复后壳会自动刷一次,<strong>但有没填完的东西时不刷</strong>。
+    下面这个输入框就是用来验「不刷」那一半的。
+  </p>
+  <div class="card">
+    <p style="margin:0 0 8px;font-size:.9rem">
+      <strong>测法 A(应该自动刷)</strong>:别碰输入框,开飞行模式 → 关掉。页面应该自己刷新。<br>
+      <strong>测法 B(应该不刷)</strong>:先在下面打几个字,再开关飞行模式。应该只弹提示、<em>不刷新</em>。
+    </p>
+    <input id="dirty" placeholder="在这里打几个字,再测一次"
+           style="font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:16rem;max-width:100%">
+    <button data-needs-shell onclick="doReconnect()">手动 reconnect()</button>
+  </div>
+
+  <h2>扫码(应该是关着的)</h2>
+  <p class="sub" style="margin:-4px 0 6px">
+    这个按钮用来验「关掉的能力会不会优雅降级」。
+    期望结果:<code>code=unsupported</code>,而且 <code>AppShell.scan</code> 根本不存在。
+  </p>
+  <div class="card">
+    <button data-needs-shell onclick="doScan()">试着调扫码</button>
+  </div>
+
+  <nav class="pages">
+    <a href="index.html">← 壳诊断</a>
+    <a href="offline-test.html">离线测试 →</a>
+    <a href="download.html">下载测试 →</a>
+  </nav>
+
+  <div id="log"></div>
+</div>
+
+<script src="test-common.js"></script>
+<script src="app-shell.js" defer></script>
+<script src="app-capabilities.js" defer></script>
+<script src="app-tabbar.js" defer></script>
+<script>
+var A;
+window.addEventListener('load', function () {
+  A = window.AppShell;
+  if (T.requireShell('no-shell')) {
+    T.log('壳在。version=' + A.version + ' platform=' + A.platform, 'ok');
+    var missing = ['biometric', 'saveToAlbum', 'localNotifications', 'clipboard', 'deviceId', 'inAppReview']
+      .filter(function (n) { return !A.has(n); });
+    if (missing.length) T.log('这些能力不在(按钮会返回 unsupported): ' + missing.join(', '));
+    else T.log('六项能力都在,可以逐个点了。', 'ok');
+  }
+});
+
+/* 一个统一的包装:先查 has(),再调,成功/失败都打日志 */
+function run(name, label, fn) {
+  if (!A) return;
+  if (name && !A.has(name)) {
+    T.log(label + ':has("' + name + '") = false,这个能力没编进 app。按设计应该在这里静默降级。');
+  }
+  try {
+    var p = fn();
+    if (!p || !p.then) { T.log(label + ' 已调用(没有返回 Promise)', 'ok'); return; }
+    p.then(function (r) {
+      T.log(label + ' 成功' + (r === undefined || r === true ? '' : ':' + JSON.stringify(r)), 'ok');
+    }).catch(function (e) { T.logErr(label, e); });
+  } catch (e) { T.logErr(label + '(同步抛出)', e); }
+}
+
+function doCheck()  { run('biometric', 'biometric.check()', function () { return A.biometric.check(); }); }
+function doVerify() {
+  run('biometric', 'biometric.verify()', function () {
+    return A.biometric.verify({ reason: '这是测试站在验生物识别' });
+  });
+}
+
+function doSaveUrl() {
+  var url = new URL('sample.png', location.href).href;
+  T.log('savePhoto 的输入: ' + url);
+  run('saveToAlbum', 'saveImage(网址)', function () {
+    return A.saveImage(url, { fileName: 'testing-sample' });
+  });
+}
+/* 一个 1x1 的红点 PNG,最小的 data: 用例 */
+var DOT = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+function doSaveData() {
+  run('saveToAlbum', 'saveImage(data:)', function () {
+    return A.saveImage(DOT, { fileName: 'testing-dot' });
+  });
+}
+
+function doNotifyNow() {
+  run('localNotifications', 'notify(立刻)', function () {
+    return A.notify({ title: '测试通知', body: '这条是立刻弹的。点它应该回到 app。' });
+  });
+}
+function doNotifyLater() {
+  var at = new Date(Date.now() + 10 * 1000);
+  T.log('排在 ' + at.toLocaleTimeString() + ',现在把 app 切到后台');
+  run('localNotifications', 'notify(10 秒后)', function () {
+    return A.notify({ id: 9001, title: '10 秒到了', body: '非精确闹钟,可能会晚一点。', at: at });
+  });
+}
+function doCancel() {
+  run('localNotifications', 'cancelNotify(9001)', function () { return A.cancelNotify(9001); });
+}
+
+function doCopy() {
+  var v = document.getElementById('copytext').value;
+  run('clipboard', 'copy("' + v + '")', function () { return A.copy(v); });
+}
+
+function doDeviceId() { run('deviceId', 'deviceId()', function () { return A.deviceId(); }); }
+function doReview()   { run('inAppReview', 'requestReview()', function () { return A.requestReview(); }); }
+
+function doHaptic(kind) {
+  if (!A) return;
+  T.log('haptic("' + kind + '") —— 感觉一下,这项不看日志');
+  A.haptic(kind).then(function (ok) {
+    if (!ok) T.log('  返回 false:没震成(设备不支持 / 关了振动 / 静音)。按设计这不算错误。');
+  });
+}
+
+function doReconnect() {
+  if (!A) return;
+  T.log('调 reconnect(),页面马上会刷新…');
+  A.reconnect();
+}
+
+function doScan() {
+  T.log('AppShell.scan 存在吗: ' + (typeof A.scan));
+  T.log('AppShell.has("scanner") = ' + A.has('scanner'));
+  if (typeof A.scan !== 'function') {
+    T.log('AppShell.scan 不存在 —— 这是对的,扫码的网站侧实现随开关一起删掉了(在 commit 3634166 里)。', 'ok');
+    T.log('直接问插件看看:', '');
+    run(null, 'invoke(BarcodeScanner.scan)', function () {
+      return A.invoke('BarcodeScanner', 'scan', {});
+    });
+    return;
+  }
+  run('scanner', 'scan()', function () { return A.scan(); });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "强制更新用的版本接口。把这个文件放到网站上(或者用任何能返回同样 JSON 的接口),",
+    "然后把它的地址填进 app.config.json 的 updateCheckUrl。",
+    "",
+    "原生侧每次冷启动读一次。拿不到、解析不了、字段缺失 —— 任何一种情况都【什么都不做】,",
+    "绝不会因为接口挂了把用户锁在遮罩后面。",
+    "",
+    "android.minVersionCode 对应 Android 的 versionCode(CI 里用 github.run_number)。",
+    "ios.minVersion 对应 iOS 的 CFBundleShortVersionString(就是 1.2.0 这种)。",
+    "storeUrl 放在这里而不是编译进 app,这样上架后拿到真实商店链接不用重新发版。"
+  ],
+
+  "android": {
+    "minVersionCode": 1,
+    "storeUrl": "https://play.google.com/store/apps/details?id=com.example.shop"
+  },
+
+  "ios": {
+    "minVersion": "1.0.0",
+    "storeUrl": "https://apps.apple.com/app/idCHANGE_ME"
+  },
+
+  "message": "这个版本太旧了,请更新后继续使用。"
+}

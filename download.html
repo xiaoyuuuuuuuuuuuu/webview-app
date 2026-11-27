@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>下载测试 · testing</title>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1>下载测试</h1>
+  <p class="sub">两个平台走的是完全不同的路,所以要分开看结果。</p>
+
+  <div class="note">
+    <strong>Android</strong>:原生 <code>DownloadListener</code> → 系统
+    <code>DownloadManager</code>。通知栏会出现下载进度,完成后能在「下载」里找到。
+    请求会带上 WebView 的 cookie(漏了这步,登录态文件会下成一个登录页 HTML,
+    而且 HTTP 200 看着还像成功)。
+    <br><br>
+    <strong>iOS</strong>:<code>app-shell.js</code> 拦下链接交给
+    <code>Browser.open()</code>(Safari View Controller),你在里面「存到文件」。
+    不走原生是因为拿不到 <code>WKDownloadDelegate</code> —— 要触发它必须先占住
+    <code>navigationDelegate</code>,而那个被 Capacitor 占着,硬抢会连带废掉离线页和 bridge 清理。
+  </div>
+
+  <div class="note stop">
+    <strong>iOS 上有一个必须知道的限制。</strong>
+    Safari View Controller <strong>不共享 WebView 的 cookie</strong>,
+    所以「需要登录才能下载」的文件在 iOS 上会失败(下到登录页)。
+    解法在服务器端:给下载链接发一个带签名的短期 URL。
+    这一页的文件不需要登录,所以测不出这个问题 —— 但你的真站上会遇到。
+  </div>
+
+  <h2>1. 带 download 属性的链接</h2>
+  <p class="sub" style="margin:-4px 0 8px">最可靠的一种,两端都认。</p>
+  <div class="card">
+    <a href="sample.pdf" download="testing-sample.pdf">
+      <button class="primary">下载 sample.pdf(有 download 属性)</button>
+    </a>
+  </div>
+
+  <h2>2. 只靠扩展名认出来的链接</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    没有 <code>download</code> 属性,靠路径结尾的 <code>.pdf</code> 匹配上
+    <code>app-shell.js</code> 的 <code>downloadExtensions</code>。
+  </p>
+  <div class="card">
+    <a href="sample.pdf"><button>打开 sample.pdf(没有 download 属性)</button></a>
+  </div>
+
+  <h2>3. 路径里没有扩展名的</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    <strong>两端在这里行为不一样,所以分开说。</strong>
+  </p>
+  <div class="note" style="margin-top:0">
+    <strong>Android</strong>:<strong>看服务器响应,不看网址</strong>。
+    原生 <code>DownloadListener</code> 只要 WebView 显示不了这个响应就会接手下载,
+    跟路径有没有扩展名无关。所以这个链接在 Android 上<strong>会下载</strong>。
+    (真机实测过:之前这里写的「预期不触发」是错的。)
+    <br><br>
+    <strong>iOS</strong>:<code>app-shell.js</code> 是按 <code>url.pathname</code>
+    的扩展名拦截的(<code>downloadExtensions</code>),路径没扩展名就<strong>拦不到</strong>,
+    WKWebView 会自己尝试打开它。<strong>这才是规则的边界</strong> ——
+    真站上遇到 <code>/export?type=pdf</code> 这种接口,就给那个 <code>&lt;a&gt;</code>
+    加 <code>download</code> 属性,两端都稳。
+  </div>
+  <div class="card">
+    <a href="export-noext">
+      <button>点它(路径 /export-noext,没有扩展名)</button>
+    </a>
+  </div>
+
+  <h2>4. 外链分流</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    站外域名应该<strong>不在当前 WebView 里打开</strong>。
+    <code>externalInAppBrowser: true</code> 时走应用内浏览器(有「完成」按钮那种),
+    改成 false 就丢给系统浏览器。<strong>不管哪种,都不该把你挤出 app</strong>。
+  </p>
+  <div class="card">
+    <a href="https://example.com/"><button>打开一个站外链接</button></a>
+  </div>
+
+  <h2 id="pay">5. 支付跳转(intent:// 唤起 app)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    东南亚的支付网关常用 <code>intent://</code> 链接把用户送到电子钱包 app。
+    Android WebView 本身不认这种链接,Capacitor 也没处理(点了没反应),壳里补上了。
+    <strong>三个按钮都不该「点了没反应」</strong>。
+    iOS 上支付网关不会给 <code>intent://</code>,这一节在 iOS 上没反应是正常的。
+  </p>
+  <div class="card" id="pay-fallback-ok" style="display:none">
+    ✅ 回来了:这就是 ② 的 <code>browser_fallback_url</code> 指的地方,而且还在 app 里。
+  </div>
+  <div class="card">
+    <a href="intent://maps.google.com/maps?q=Petronas+Twin+Towers#Intent;scheme=https;package=com.google.android.apps.maps;end">
+      <button>① 已安装的 app:打开 Google 地图</button>
+    </a>
+    <p class="sub">应该直接跳进 Google 地图。没装的话会跳到 Play 商店它的页面。</p>
+  </div>
+  <div class="card">
+    <a id="pay-fb-link" href="#">
+      <button>② 没装的钱包,带备用网址</button>
+    </a>
+    <p class="sub">那个 app 不存在,应该回到<strong>这一页这一节</strong>(还在 app 里),上面出现一条绿色提示。</p>
+  </div>
+  <div class="card">
+    <a href="intent://pay#Intent;scheme=tngdwallet;package=my.com.tngdigital.ewallet;end">
+      <button>③ 没装 TNG eWallet:去应用商店</button>
+    </a>
+    <p class="sub">装了 TNG 会直接打开它;没装应该跳到 Play 商店的 TNG eWallet 页面。</p>
+  </div>
+
+  <h2 id="share">6. 网页自己的分享按钮(navigator.share)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    这个按钮调的是<strong>标准的</strong> <code>navigator.share</code>,不是 <code>AppShell.share</code>。
+    Android WebView 本身没有这个 API,壳用原生分享补上了。应该弹出系统分享面板;
+    取消的话,日志里应该是 <code>AbortError</code>。
+  </p>
+  <div class="card">
+    <button id="web-share">用 navigator.share 分享这一页</button>
+  </div>
+
+  <h2 id="winopen">7. JS 的 window.open</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    这三个按钮用 JS 调 <code>window.open</code>,不是点链接。
+    改之前 <strong>iOS 上连同站的页面都会被扔进 Safari</strong>。
+  </p>
+  <div class="card">
+    <button id="wo-same">① window.open 同站页面(壳诊断)</button>
+    <button id="wo-ext">② window.open 站外页面</button>
+    <button id="wo-late">③ 先开空窗口,一秒后再给 location 赋值</button>
+  </div>
+
+  <h2 id="geo">8. 网页自己的定位(navigator.geolocation)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    <code>webLocation</code> 开关<strong>默认关</strong>。关着的时候点下面的按钮,
+    应该<strong>连对话框都不弹</strong>就直接拿到「拒绝」—— 这就是开关要修的问题。
+    打开开关、重新出包之后再点,应该弹系统的定位授权。
+  </p>
+  <div class="card">
+    <button id="geo-get">用 navigator.geolocation 取一次位置</button>
+  </div>
+
+  <h2 id="print">9. 网页自己的打印(window.print)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    这个按钮调的是<strong>标准的</strong> <code>window.print()</code>。
+    改之前两端 WebView 收到它都什么都不做;现在应该弹系统打印界面,可以存成 PDF。
+  </p>
+  <div class="card">
+    <button id="print-page">打印这一页</button>
+  </div>
+
+  <h2>认得出哪些扩展名</h2>
+  <div class="card"><code id="exts"></code></div>
+
+  <nav class="pages">
+    <a href="index.html">← 壳诊断</a>
+    <a href="capabilities.html">能力测试 →</a>
+    <a href="offline-test.html">离线测试 →</a>
+  </nav>
+
+  <div id="log"></div>
+</div>
+
+<script src="test-common.js"></script>
+<script src="app-shell.js" defer></script>
+<script src="app-capabilities.js" defer></script>
+<script src="app-tabbar.js" defer></script>
+<script>
+// ② 的备用网址按当前页面拼,换了 siteUrl 也不用改这里
+(function () {
+  var here = location.href.split('#')[0];
+  var fallback = encodeURIComponent(here + '#pay-fallback');
+  var link = document.getElementById('pay-fb-link');
+  if (link) {
+    link.href = 'intent://pay?order=TEST123#Intent;scheme=fakewallet;'
+      + 'package=com.example.notinstalled.wallet;S.browser_fallback_url=' + fallback + ';end';
+  }
+  // 回来时可能是整页加载,也可能只是改了 hash(同一页),两种都要认
+  function showIfBack() {
+    if (location.hash === '#pay-fallback') {
+      var ok = document.getElementById('pay-fallback-ok');
+      if (ok) { ok.style.display = ''; ok.scrollIntoView({ block: 'center' }); }
+    }
+  }
+  window.addEventListener('hashchange', showIfBack);
+  document.addEventListener('DOMContentLoaded', showIfBack);
+})();
+
+// ⑨ 网页自己的打印
+document.addEventListener('DOMContentLoaded', function () {
+  var btn = document.getElementById('print-page');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var A = window.AppShell;
+    T.log('调 window.print()' + (A && A.has ? ',AppShell.has(\'print\')=' + A.has('print') : ''));
+    window.print();
+  });
+});
+
+// ⑧ 网页自己的定位
+document.addEventListener('DOMContentLoaded', function () {
+  var btn = document.getElementById('geo-get');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    if (!navigator.geolocation) { T.log('navigator.geolocation 不存在'); return; }
+    T.log('请求定位…');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      T.log('拿到了: ' + pos.coords.latitude.toFixed(4) + ', ' + pos.coords.longitude.toFixed(4) +
+        '(精度 ' + Math.round(pos.coords.accuracy) + ' 米)');
+    }, function (err) {
+      var names = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+      T.log('没拿到: ' + (names[err.code] || err.code) + ' ' + err.message +
+        (err.code === 1 ? ' —— 没弹对话框就拒绝了的话,是 webLocation 开关没开' : ''));
+    }, { timeout: 15000, maximumAge: 60000 });
+  });
+});
+
+// ⑦ window.open 的三种写法
+document.addEventListener('DOMContentLoaded', function () {
+  function on(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+  on('wo-same', function () {
+    var w = window.open('index.html', '_blank');
+    T.log('window.open(同站) 返回: ' + (w ? 'object' : String(w)));
+  });
+  on('wo-ext', function () {
+    var w = window.open('https://example.com/', '_blank');
+    T.log('window.open(站外) 返回: ' + (w ? 'object' : String(w)));
+  });
+  on('wo-late', function () {
+    var w = window.open('', '_blank');
+    if (!w) { T.log('window.open() 返回 null —— 网站这时会以为被弹窗拦截了'); return; }
+    T.log('先开了空窗口,一秒后赋值 location');
+    setTimeout(function () { w.location = 'index.html'; }, 1000);
+  });
+});
+
+// ⑥ 网站自己的分享按钮:点击时才判断 navigator.share,不受脚本加载顺序影响
+document.addEventListener('DOMContentLoaded', function () {
+  var btn = document.getElementById('web-share');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    if (typeof navigator.share !== 'function') {
+      T.log('navigator.share 不存在 —— 壳没补上(或者不在 app 里)');
+      return;
+    }
+    T.log('navigator.share 存在,canShare=' +
+      (typeof navigator.canShare === 'function' ? navigator.canShare({ url: location.href }) : '(没有 canShare)'));
+    navigator.share({ title: 'webview-app 测试站', text: '分享测试', url: location.href })
+      .then(function () { T.log('分享完成'); })
+      .catch(function (e) { T.log('分享没完成: ' + e.name + ' ' + e.message); });
+  });
+});
+
+window.addEventListener('load', function () {
+  T.requireShell('no-shell');
+  // 这个正则写在 app-shell.js 的 CONFIG 里,但没导出,所以这里只是把它抄一份展示
+  document.getElementById('exts').textContent =
+    '.pdf .xls(x) .doc(x) .csv .zip .rar .7z .ppt(x) .apk .ipa .dmg .mp4 .mp3';
+  var A = window.AppShell;
+  if (A) {
+    T.log('platform=' + A.platform + ' —— '
+      + (A.platform === 'ios'
+          ? 'iOS:下载走 app-shell.js 拦截 + Browser.open(),看有没有弹出 Safari 视图'
+          : 'Android:下载走原生 DownloadManager,看通知栏有没有进度'));
+  }
+});
+</script>
+</body>
+</html>
