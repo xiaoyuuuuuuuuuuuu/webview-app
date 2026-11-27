@@ -224,6 +224,20 @@ navigator.share({ title: '这双鞋不错', url: '/products/123' })
   要让 `app-shell.js` 排在那段脚本**前面**;在点击时才判断就没有这个顺序问题
 - 不想要就把 `app-shell.js` 里 `CONFIG.polyfillWebShare` 改成 `false`
 
+**网站 JS 调的 `window.open()` 也按链接的规则走(1.6.0 起)。** 改之前:
+**iOS 上连同站的页面也会被扔进 Safari**,用户被挤出 app —— Capacitor 的
+`createWebViewWith` 直接 `UIApplication.open(url)`;Android 上站外的会扔给系统浏览器,
+和点链接时用的应用内浏览器不一致。现在 app 里的 `window.open`:
+
+- 同站 → 在 app 里打开(和 `target="_blank"` 的链接一样)
+- 站外 → 应用内浏览器(跟 `CONFIG.externalInAppBrowser`)
+- `tel:` / `mailto:` / `intent://` → 交给原生
+- 返回一个「窗口替身」而不是 `null`。先 `window.open()` 开空窗口、等接口回来再给
+  `w.location` 赋值的写法(支付跳转躲弹窗拦截常这么写)照样能用,
+  也不会让网站误以为被拦了去弹「请允许弹出窗口」
+- 替身没有 `document`:「开空窗口再 `document.write` 一段 HTML」这种用法不支持
+- 不想要就把 `CONFIG.interceptWindowOpen` 改成 `false`
+
 > 加了新接口就把 `app-shell.js` 里的 `SHELL_VERSION` 加一,并同步改这张表。
 > `npm run verify` 会检查导出里有没有 `version` / `invoke` / `has` / `capabilities`。
 

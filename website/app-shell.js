@@ -12,7 +12,7 @@
  *   2. 安卓返回键 —— 不接的话在首页按返回 app 会卡住不退出
  *   3. 下拉刷新
  *   4. 断网/恢复的提示条
- *   5. target="_blank" 的链接(安卓 WebView 默认点了没反应)
+ *   5. target="_blank" 的链接(安卓 WebView 默认点了没反应),以及 JS 的 window.open
  *   6. iOS 上的文件下载(安卓走原生 DownloadManager,不经过这里)
  *   7. safe area:统一成 --app-safe-* 四个 CSS 变量,给网站 CSS 用
  *   8. 深度链接:从外部点进来时跳到对应页面
@@ -38,6 +38,8 @@
     polyfillWebShare: true,
     reconnectText: '网络已恢复,正在刷新…',
     externalInAppBrowser: true, // 外链用应用内浏览器(false = 丢给系统浏览器)
+    // 网站 JS 调 window.open() 时按和点链接同一套规则分流(iOS 默认会把同站的也扔给 Safari)
+    interceptWindowOpen: true,
     hideSplashDelay: 0,        // 收起启动页前多等几毫秒,给网站渲染时间
     // safe area。要和 app.config.json 的 safeArea 保持一致:
     //   'native' —— 原生把 WebView 让开系统栏,网站什么都不用做(默认)
@@ -59,7 +61,7 @@
 
   // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
   // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
-  var SHELL_VERSION = '1.5.0';
+  var SHELL_VERSION = '1.6.0';
 
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
@@ -579,6 +581,68 @@
         openExternal(url.href);
       }
     }, true);
+
+    // ----- JS 的 window.open -----
+    // 上面只接住了「点链接」。网站用 JS 调 window.open() 时:
+    //   iOS:Capacitor 的 createWebViewWith 直接 UIApplication.open(url) ——
+    //        【连同站的也扔给 Safari】,用户被挤出 app(WebViewDelegationHandler.swift:324)
+    //   Android:同站的在当前页打开,站外的扔给系统浏览器,和点链接走应用内浏览器不一致
+    // 所以在 app 里把它接管过来,按和点链接同一套规则分流。
+    //
+    // 返回一个「窗口替身」而不是 null:有的站先 window.open() 开个空窗口(躲弹窗拦截),
+    // 等接口返回再给它的 location 赋值 —— 支付跳转常这么写,替身要接得住这一下。
+    // 返回 null 的话,很多站会以为被拦了,弹一句「请允许弹出窗口」。
+    if (CONFIG.interceptWindowOpen) {
+      var routeOpen = function (raw) {
+        var url;
+        try { url = new URL(String(raw), location.href); } catch (err) { return; }
+        // javascript: / data: 不执行 —— 在真浏览器里它们跑在新窗口里,这里没有新窗口
+        if (url.protocol === 'javascript:' || url.protocol === 'data:') return;
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          // tel: / mailto: / intent:// 交给原生(Android 的 intent:// 由壳的原生代码处理)
+          window.location.href = url.href;
+          return;
+        }
+        if (CONFIG.interceptDownloadsOnIOS && platform === 'ios' &&
+            CONFIG.downloadExtensions.test(url.pathname)) {
+          call('Browser', 'open', { url: url.href });
+          return;
+        }
+        if (isSameSite(url.hostname)) window.location.href = url.href;
+        else openExternal(url.href);
+      };
+
+      var makeWindowStub = function () {
+        var loc = { toString: function () { return 'about:blank'; } };
+        Object.defineProperty(loc, 'href', {
+          get: function () { return 'about:blank'; },
+          set: function (v) { routeOpen(v); },
+        });
+        loc.assign = function (v) { routeOpen(v); };
+        loc.replace = function (v) { routeOpen(v); };
+        var stub = {
+          closed: false,
+          opener: null,
+          focus: function () {},
+          blur: function () {},
+          postMessage: function () {},
+        };
+        stub.close = function () { stub.closed = true; };
+        Object.defineProperty(stub, 'location', {
+          get: function () { return loc; },
+          set: function (v) { routeOpen(v); },
+        });
+        return stub;
+      };
+
+      defineOn(window, 'open', function (url) {
+        var stub = makeWindowStub();
+        var s = url === undefined || url === null ? '' : String(url);
+        if (s !== '' && s !== 'about:blank') routeOpen(s);
+        return stub;
+      });
+    }
+    // ----- window.open 结束 -----
   })();
 
   // ---------- 6. 深度链接 ----------

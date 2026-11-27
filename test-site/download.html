@@ -120,6 +120,17 @@
     <button id="web-share">用 navigator.share 分享这一页</button>
   </div>
 
+  <h2 id="winopen">7. JS 的 window.open</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    这三个按钮用 JS 调 <code>window.open</code>,不是点链接。
+    改之前 <strong>iOS 上连同站的页面都会被扔进 Safari</strong>。
+  </p>
+  <div class="card">
+    <button id="wo-same">① window.open 同站页面(壳诊断)</button>
+    <button id="wo-ext">② window.open 站外页面</button>
+    <button id="wo-late">③ 先开空窗口,一秒后再给 location 赋值</button>
+  </div>
+
   <h2>认得出哪些扩展名</h2>
   <div class="card"><code id="exts"></code></div>
 
@@ -156,6 +167,25 @@
   window.addEventListener('hashchange', showIfBack);
   document.addEventListener('DOMContentLoaded', showIfBack);
 })();
+
+// ⑦ window.open 的三种写法
+document.addEventListener('DOMContentLoaded', function () {
+  function on(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+  on('wo-same', function () {
+    var w = window.open('index.html', '_blank');
+    T.log('window.open(同站) 返回: ' + (w ? 'object' : String(w)));
+  });
+  on('wo-ext', function () {
+    var w = window.open('https://example.com/', '_blank');
+    T.log('window.open(站外) 返回: ' + (w ? 'object' : String(w)));
+  });
+  on('wo-late', function () {
+    var w = window.open('', '_blank');
+    if (!w) { T.log('window.open() 返回 null —— 网站这时会以为被弹窗拦截了'); return; }
+    T.log('先开了空窗口,一秒后赋值 location');
+    setTimeout(function () { w.location = 'index.html'; }, 1000);
+  });
+});
 
 // ⑥ 网站自己的分享按钮:点击时才判断 navigator.share,不受脚本加载顺序影响
 document.addEventListener('DOMContentLoaded', function () {
