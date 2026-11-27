@@ -83,11 +83,13 @@ jobs:
           DEBUG_KS: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$DEBUG_KS" ]; then
-            mkdir -p ~/.android
-            printf '%s' "$DEBUG_KS" | base64 -d > ~/.android/debug.keystore
-            # Gradle 的默认值:密码 android,别名 androiddebugkey。不对就早点失败
-            keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
+            KS="$RUNNER_TEMP/debug.keystore"
+            printf '%s' "$DEBUG_KS" | base64 -d > "$KS"
+            # android/app/build.gradle 的 signingConfigs.debug 读这个变量。
+            # 密码 android、别名 androiddebugkey(和 Gradle 默认的 debug keystore 一样),不对就早点失败
+            keytool -list -v -keystore "$KS" -storepass android -alias androiddebugkey \
               | grep -E 'SHA256:' | sed 's/^\s*/固定 debug 签名 /'
+            echo "ANDROID_DEBUG_KEYSTORE_FILE=$KS" >> "$GITHUB_ENV"
           else
             echo "::notice::没有配 ANDROID_DEBUG_KEYSTORE_BASE64,用随机生成的 debug 签名 —— 新包不能覆盖安装旧包,得先卸载"
           fi
@@ -100,6 +102,13 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # 打出 APK 里【实际】的签名证书。上面打的是 keystore 的,这里才是装到手机上比对的那个 ——
+      # 两者一致才说明 Gradle 真用了它(第一版就是 keystore 对了、APK 没用上)
+      - name: 核对 APK 的签名证书
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/debug/*.apk | grep -E 'SHA-256'
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4

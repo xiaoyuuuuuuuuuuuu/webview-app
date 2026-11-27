@@ -23,6 +23,19 @@ android {
         }
     }
     signingConfigs {
+        debug {
+            // CI 用一把固定的 debug keystore(见 .github/workflows/android.yml),
+            // 这样每次出的调试包签名相同,能直接覆盖安装。没给就用 Gradle 默认的。
+            // 显式指定而不是放到 ~/.android/debug.keystore:实测 CI 上放在那里不生效,
+            // 两次构建的包证书照样不同。
+            def debugKs = System.getenv("ANDROID_DEBUG_KEYSTORE_FILE")
+            if (debugKs != null && !debugKs.isEmpty() && file(debugKs).exists()) {
+                storeFile file(debugKs)
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
         release {
             // 上架用的签名。本地和 CI 都从环境变量读,keystore 永远不进 git。
             //   ANDROID_KEYSTORE_FILE / ANDROID_KEYSTORE_PASSWORD
