@@ -49,15 +49,25 @@
     <a href="sample.pdf"><button>打开 sample.pdf(没有 download 属性)</button></a>
   </div>
 
-  <h2>3. 认不出来的那一类</h2>
+  <h2>3. 路径里没有扩展名的</h2>
   <p class="sub" style="margin:-4px 0 8px">
-    路径里没有扩展名的导出接口(<code>/export?type=pdf</code> 这种)<strong>认不出来</strong>。
-    这不是 bug,是规则本身的边界 —— 真站上遇到就给那个 <code>&lt;a&gt;</code> 加
-    <code>download</code> 属性。下面这个链接故意不带扩展名,点了应该<em>不会</em>触发下载。
+    <strong>两端在这里行为不一样,所以分开说。</strong>
   </p>
+  <div class="note" style="margin-top:0">
+    <strong>Android</strong>:<strong>看服务器响应,不看网址</strong>。
+    原生 <code>DownloadListener</code> 只要 WebView 显示不了这个响应就会接手下载,
+    跟路径有没有扩展名无关。所以这个链接在 Android 上<strong>会下载</strong>。
+    (真机实测过:之前这里写的「预期不触发」是错的。)
+    <br><br>
+    <strong>iOS</strong>:<code>app-shell.js</code> 是按 <code>url.pathname</code>
+    的扩展名拦截的(<code>downloadExtensions</code>),路径没扩展名就<strong>拦不到</strong>,
+    WKWebView 会自己尝试打开它。<strong>这才是规则的边界</strong> ——
+    真站上遇到 <code>/export?type=pdf</code> 这种接口,就给那个 <code>&lt;a&gt;</code>
+    加 <code>download</code> 属性,两端都稳。
+  </div>
   <div class="card">
-    <a href="sample.pdf?type=pdf&amp;no-extension-in-path=1">
-      <button>点它(预期:不触发下载逻辑)</button>
+    <a href="export-noext">
+      <button>点它(路径 /export-noext,没有扩展名)</button>
     </a>
   </div>
 

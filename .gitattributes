@@ -12,6 +12,7 @@ android/gradlew text eol=lf
 
 *.png  binary
 *.pdf  binary
+test-site/export-noext binary
 *.jar  binary
 *.jks  binary
 *.keystore binary

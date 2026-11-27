@@ -18,10 +18,12 @@ name: Pages (测试站)
 on:
   workflow_dispatch:
   push:
-    # 注意:workflow_dispatch 只有当这个文件已经在【默认分支】上时才能用
-    # (否则 gh workflow run 报 404)。合进 main 之前靠 push 触发,
-    # 所以开发分支也列在这里;合入 main 之后可以把它删掉。
-    branches: [main, 'claude/**']
+    # 只跟 main。以前还列了 'claude/**'(合进 main 之前只能靠 push 触发),
+    # 但同一个提交同时推 main 和开发分支时会触发两次,
+    # concurrency 的 cancel-in-progress 再把其中一次取消掉 —— 每次都留一个
+    # 看着像失败的 cancelled。现在这个文件已经在 main 上,workflow_dispatch
+    # 也能用了,就不需要开发分支这一路了。
+    branches: [main]
     paths:
       - 'test-site/**'
       - 'website/**'
@@ -69,7 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           for f in index.html capabilities.html offline-test.html download.html \
-                   test.css test-common.js sample.png sample.pdf \
+                   test.css test-common.js sample.png sample.pdf export-noext \
                    app-shell.js app-capabilities.js app-tabbar.js sw.js .nojekyll; do
             test -f "_site/$f" || { echo "::error::_site/$f 不见了"; exit 1; }
           done
