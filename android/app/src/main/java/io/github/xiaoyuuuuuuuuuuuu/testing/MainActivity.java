@@ -1,8 +1,10 @@
-// 本项目对 cap add 生成结果的 Android 改动,四项,都集中在这个文件:
+// 本项目对 cap add 生成结果的 Android 改动,五项,都集中在这个文件:
 //   1. 顶部页面加载进度条
 //   2. 文件下载(WebView 自己不会下载,点下载链接完全没反应)
 //   3. 强制更新提示(做在原生侧,因为 WebView 崩了的时候网页提示也显示不出来)
 //   4. 状态栏图标深浅(Capacitor 自带的 SystemBars 会盖掉配置,见 applySystemBarIcons)
+//   5. 支付跳转:intent:// 链接(东南亚电子钱包常用),Capacitor 自己处理不了,
+//      见 PaymentAwareWebViewClient
 //
 // 为什么做在原生侧:server.url 模式下跨页导航会销毁整个 JS 环境,新页面的脚本要等
 // HTML 到达才执行 —— 而等 HTML 的那几百毫秒到几秒正是需要显示进度的时间段,
@@ -12,7 +14,8 @@
 // 为什么这样改是安全的:Capacitor 的 BridgeWebChromeClient 没有 override
 // onProgressChanged(已核对 8.6.2 源码),所以继承它、只补这一个方法、并且第一行
 // 调 super 不会吞掉任何 Capacitor 行为。承载本地资源服务 / bridge 注入 / 错误页
-// 跳转的是 BridgeWebViewClient,是另一个对象,这里完全没碰。
+// 跳转的是 BridgeWebViewClient,是另一个对象 —— 对它只做了一处继承(第 5 项):
+// shouldOverrideUrlLoading 里只拦 scheme 是 intent 的链接,其余一律走 super。
 // 下载用的 WebView.setDownloadListener 是另一个回调,Capacitor 完全没碰过。
 //
 // 升级 Capacitor 后要重新验证:BridgeWebChromeClient 是否开始自己处理
@@ -21,6 +24,7 @@ package io.github.xiaoyuuuuuuuuuuuu.testing;
 
 import android.Manifest;
 import android.app.DownloadManager;
+import android.content.ActivityNotFoundException;
 import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.content.BroadcastReceiver;
@@ -40,6 +44,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
 import android.webkit.URLUtil;
 import android.view.Gravity;
 import android.webkit.WebView;
@@ -57,6 +62,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
+import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.Logger;
 
 import org.json.JSONObject;
@@ -64,6 +70,7 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
@@ -100,6 +107,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         installProgressBar();
         installDownloadListener();
+        installPaymentRedirects();
         checkForRequiredUpdate();
         // 插件在 super.onCreate 里同步 load,SystemBars 在 load 里 post 了一次 setStyle;
         // 同一个主线程队列先进先出,这里 post 的就排在它后面
@@ -539,5 +547,100 @@ public class MainActivity extends BridgeActivity {
                         // 刻意什么都不做
                     }
                 });
+    }
+
+    // ---------------------------------------------------------------- 支付跳转
+
+    // 东南亚的支付网关(还有很多"唤起 App"的链接)用 intent:// 把用户送到电子钱包 app:
+    //
+    //   intent://pay?token=…#Intent;scheme=tngdwallet;package=my.com.tngdigital.ewallet;
+    //       S.browser_fallback_url=https%3A%2F%2F…;end
+    //
+    // Chrome 认识这种写法,WebView 不认识。Capacitor 8.6.2 的 Bridge.launchIntent 会直接拿
+    // 这串原始链接 new Intent(ACTION_VIEW, url) —— 系统里没有任何 app 处理 "intent" 这个
+    // scheme,于是抛 ActivityNotFoundException,而它接住异常的地方只写了
+    // "// TODO - trigger an event"。结果:用户在结算页点"用电子钱包付款",什么都不发生,
+    // 也不报错。
+    //
+    // 这里照 Chrome 的规则补上:解析 intent → 能打开就打开 → 打不开先走网关给的
+    // browser_fallback_url → 再没有就去应用商店装那个 app → 都不行才提示。
+    //
+    // 为什么这样扩展是安全的:继承 BridgeWebViewClient,只覆盖 shouldOverrideUrlLoading,
+    // 而且只拦 scheme 是 intent 的那一种,其余一律走 super —— 本地资源服务、bridge 注入、
+    // 错误页跳转、插件的 shouldOverrideLoad 钩子全都不受影响。BUILD_SPEC 第 0.2 节说的
+    // "要扩展必须 extends BridgeWebViewClient 并在每个 override 里调 super"就是这个。
+    //
+    // 不需要 <queries>:这里只用 startActivity + 接异常,不用 resolveActivity 去"先问一下
+    // 装没装"。Android 11+ 的软件包可见性只限制后者,所以不用多声明任何东西。
+    private void installPaymentRedirects() {
+        bridge.setWebViewClient(new PaymentAwareWebViewClient(bridge));
+    }
+
+    private class PaymentAwareWebViewClient extends BridgeWebViewClient {
+        PaymentAwareWebViewClient(Bridge bridge) {
+            super(bridge);
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            Uri url = request.getUrl();
+            if (url != null && "intent".equalsIgnoreCase(url.getScheme())) {
+                return openIntentUrl(view, url.toString());
+            }
+            return super.shouldOverrideUrlLoading(view, request);
+        }
+    }
+
+    /** 返回 true = 这次导航已经处理掉了,WebView 不要再加载它 */
+    private boolean openIntentUrl(WebView view, String raw) {
+        Intent intent;
+        try {
+            intent = Intent.parseUri(raw, Intent.URI_INTENT_SCHEME);
+        } catch (URISyntaxException e) {
+            Logger.error("intent:// 链接解析失败: " + raw, e);
+            // 吞掉:不然 WebView 会把它当网页去加载,显示 ERR_UNKNOWN_URL_SCHEME 错误页
+            return true;
+        }
+
+        // 安全加固(和 Chrome 一样):网页给的 intent 只能打开"浏览器能打开"的界面,
+        // 不能点名某个组件。不清掉的话,恶意页面可以拼一个 intent 去唤起任意导出的 Activity。
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        intent.setComponent(null);
+        intent.setSelector(null);
+
+        if (tryStart(intent)) return true;
+
+        // 那个 app 没装。1) 网关给的备用网址:自己站的留在 app 里,别的站交给系统浏览器 ——
+        //    和外链分流是同一个规则(launchIntent 返回 false 表示"这是允许在 app 里打开的")
+        String fallback = intent.getStringExtra("browser_fallback_url");
+        if (fallback != null && (fallback.startsWith("https://") || fallback.startsWith("http://"))) {
+            if (!bridge.launchIntent(Uri.parse(fallback))) {
+                view.loadUrl(fallback);
+            }
+            return true;
+        }
+
+        // 2) 指定了包名就去应用商店装它。包名先校验一下格式,别把网页给的任意字符串拼进去
+        String pkg = intent.getPackage();
+        if (pkg != null && pkg.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) {
+            if (tryStart(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + pkg)))
+                    || tryStart(new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://play.google.com/store/apps/details?id=" + pkg)))) {
+                return true;
+            }
+        }
+
+        // 3) 都不行:至少告诉用户,别让"点了没反应"再出现
+        Toast.makeText(this, R.string.open_link_no_app, Toast.LENGTH_LONG).show();
+        return true;
+    }
+
+    private boolean tryStart(Intent intent) {
+        try {
+            startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            return false;
+        }
     }
 }

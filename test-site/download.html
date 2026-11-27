@@ -81,6 +81,35 @@
     <a href="https://example.com/"><button>打开一个站外链接</button></a>
   </div>
 
+  <h2 id="pay">5. 支付跳转(intent:// 唤起 app)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    东南亚的支付网关常用 <code>intent://</code> 链接把用户送到电子钱包 app。
+    Android WebView 本身不认这种链接,Capacitor 也没处理(点了没反应),壳里补上了。
+    <strong>三个按钮都不该「点了没反应」</strong>。
+    iOS 上支付网关不会给 <code>intent://</code>,这一节在 iOS 上没反应是正常的。
+  </p>
+  <div class="card" id="pay-fallback-ok" style="display:none">
+    ✅ 回来了:这就是 ② 的 <code>browser_fallback_url</code> 指的地方,而且还在 app 里。
+  </div>
+  <div class="card">
+    <a href="intent://maps.google.com/maps?q=Petronas+Twin+Towers#Intent;scheme=https;package=com.google.android.apps.maps;end">
+      <button>① 已安装的 app:打开 Google 地图</button>
+    </a>
+    <p class="sub">应该直接跳进 Google 地图。没装的话会跳到 Play 商店它的页面。</p>
+  </div>
+  <div class="card">
+    <a id="pay-fb-link" href="#">
+      <button>② 没装的钱包,带备用网址</button>
+    </a>
+    <p class="sub">那个 app 不存在,应该回到<strong>这一页这一节</strong>(还在 app 里),上面出现一条绿色提示。</p>
+  </div>
+  <div class="card">
+    <a href="intent://pay#Intent;scheme=tngdwallet;package=my.com.tngdigital.ewallet;end">
+      <button>③ 没装 TNG eWallet:去应用商店</button>
+    </a>
+    <p class="sub">装了 TNG 会直接打开它;没装应该跳到 Play 商店的 TNG eWallet 页面。</p>
+  </div>
+
   <h2>认得出哪些扩展名</h2>
   <div class="card"><code id="exts"></code></div>
 
@@ -98,6 +127,26 @@
 <script src="app-capabilities.js" defer></script>
 <script src="app-tabbar.js" defer></script>
 <script>
+// ② 的备用网址按当前页面拼,换了 siteUrl 也不用改这里
+(function () {
+  var here = location.href.split('#')[0];
+  var fallback = encodeURIComponent(here + '#pay-fallback');
+  var link = document.getElementById('pay-fb-link');
+  if (link) {
+    link.href = 'intent://pay?order=TEST123#Intent;scheme=fakewallet;'
+      + 'package=com.example.notinstalled.wallet;S.browser_fallback_url=' + fallback + ';end';
+  }
+  // 回来时可能是整页加载,也可能只是改了 hash(同一页),两种都要认
+  function showIfBack() {
+    if (location.hash === '#pay-fallback') {
+      var ok = document.getElementById('pay-fallback-ok');
+      if (ok) { ok.style.display = ''; ok.scrollIntoView({ block: 'center' }); }
+    }
+  }
+  window.addEventListener('hashchange', showIfBack);
+  document.addEventListener('DOMContentLoaded', showIfBack);
+})();
+
 window.addEventListener('load', function () {
   T.requireShell('no-shell');
   // 这个正则写在 app-shell.js 的 CONFIG 里,但没导出,所以这里只是把它抄一份展示

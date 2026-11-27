@@ -13,4 +13,7 @@
     <string name="update_required_title">需要更新</string>
     <string name="update_required_message">这个版本太旧了,请更新后继续使用。</string>
     <string name="update_required_action">去更新</string>
+
+    <!-- 支付跳转:intent:// 指向的 app 没装、也没有备用网址和包名时 -->
+    <string name="open_link_no_app">没有安装能打开这个链接的 app</string>
 </resources>

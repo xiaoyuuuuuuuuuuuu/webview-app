@@ -504,6 +504,42 @@ Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登�
 以及 `POST_NOTIFICATIONS` 权限是在用户第一次点下载时才请求的(Android 13+),
 拒绝了下载照样进行,只是通知栏不显示进度。
 
+### 支付跳转(intent:// 唤起电子钱包)
+
+东南亚的支付网关(还有很多"唤起 App"的链接)用 `intent://` 把用户送到电子钱包 app:
+
+```
+intent://pay?token=…#Intent;scheme=tngdwallet;package=my.com.tngdigital.ewallet;
+    S.browser_fallback_url=https%3A%2F%2F…;end
+```
+
+Chrome 认识这种写法,**WebView 不认识,Capacitor 也没处理**。8.6.2 的
+`Bridge.launchIntent` 拿这串原始链接直接 `new Intent(ACTION_VIEW, url)`,系统里
+没有 app 处理 `intent` 这个 scheme,抛 `ActivityNotFoundException`,而接住异常的地方
+只写了 `// TODO - trigger an event`。**结果是用户在结算页点「用电子钱包付款」,
+什么都不发生,也不报错。** 网站在浏览器里测是好的,只有套进 app 才坏。
+
+壳里照 Chrome 的规则补上了(`MainActivity` 的第 5 项):
+
+1. `Intent.parseUri` 解析,能打开就打开
+2. 那个 app 没装:有 `browser_fallback_url` 就去那里 —— 自己站的留在 app 里,
+   别的站交给系统浏览器(和外链分流同一个规则)
+3. 没有备用网址但指定了包名:去 Play 商店装它
+4. 都不行:弹一句「没有安装能打开这个链接的 app」,不再是点了没反应
+
+安全上和 Chrome 一样:强制加 `CATEGORY_BROWSABLE`、清掉 `component` 和 `selector`,
+网页给的 intent 只能打开"浏览器能打开"的界面,不能点名唤起任意组件。
+不需要声明 `<queries>`,因为只用 `startActivity` + 接异常,不先查装没装。
+
+**iOS 不受影响**:支付网关在 iOS 上不会给 `intent://`,给的是自定义 scheme
+(`tngdwallet://…`)或 Universal Link。Capacitor 在顶层跳转遇到非 http 的 scheme 时
+会交给 `UIApplication.open` 去开那个 app,这一段原本就能用。唯一的缺口是
+**那个 app 没装时没有任何提示** —— 这一层在 Capacitor 的 `WebViewDelegationHandler`
+里,它是 `private(set)`,改不了(见 BUILD_SPEC 第 0.2 节)。
+
+测试页:`test-site/download.html` 的第 5 节,三个按钮分别测"已安装""没装但有备用网址"
+"没装、去应用商店"。
+
 ### Safe area(刘海屏、灵动岛、底部手势条)
 
 **大部分活 Capacitor 已经干了,别重复实现。** Capacitor 8 的
