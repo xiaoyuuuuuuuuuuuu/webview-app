@@ -110,6 +110,16 @@
     <p class="sub">装了 TNG 会直接打开它;没装应该跳到 Play 商店的 TNG eWallet 页面。</p>
   </div>
 
+  <h2 id="share">6. 网页自己的分享按钮(navigator.share)</h2>
+  <p class="sub" style="margin:-4px 0 8px">
+    这个按钮调的是<strong>标准的</strong> <code>navigator.share</code>,不是 <code>AppShell.share</code>。
+    Android WebView 本身没有这个 API,壳用原生分享补上了。应该弹出系统分享面板;
+    取消的话,日志里应该是 <code>AbortError</code>。
+  </p>
+  <div class="card">
+    <button id="web-share">用 navigator.share 分享这一页</button>
+  </div>
+
   <h2>认得出哪些扩展名</h2>
   <div class="card"><code id="exts"></code></div>
 
@@ -146,6 +156,23 @@
   window.addEventListener('hashchange', showIfBack);
   document.addEventListener('DOMContentLoaded', showIfBack);
 })();
+
+// ⑥ 网站自己的分享按钮:点击时才判断 navigator.share,不受脚本加载顺序影响
+document.addEventListener('DOMContentLoaded', function () {
+  var btn = document.getElementById('web-share');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    if (typeof navigator.share !== 'function') {
+      T.log('navigator.share 不存在 —— 壳没补上(或者不在 app 里)');
+      return;
+    }
+    T.log('navigator.share 存在,canShare=' +
+      (typeof navigator.canShare === 'function' ? navigator.canShare({ url: location.href }) : '(没有 canShare)'));
+    navigator.share({ title: 'webview-app 测试站', text: '分享测试', url: location.href })
+      .then(function () { T.log('分享完成'); })
+      .catch(function (e) { T.log('分享没完成: ' + e.name + ' ' + e.message); });
+  });
+});
 
 window.addEventListener('load', function () {
   T.requireShell('no-shell');

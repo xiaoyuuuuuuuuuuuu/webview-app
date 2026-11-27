@@ -17,7 +17,8 @@
  *   7. safe area:统一成 --app-safe-* 四个 CSS 变量,给网站 CSS 用
  *   8. 深度链接:从外部点进来时跳到对应页面
  *   9. 离线缓存:只在 app 里注册 /sw.js,浏览器访问网站不受影响
- *  10. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
+ *  10. 网站自己的 navigator.share:Android WebView 没实现,用原生分享补上
+ *  11. 给 <html> 加 class,方便网站 CSS 针对 app 做调整
  */
 (function () {
   'use strict';
@@ -33,6 +34,8 @@
     // 网络恢复后自动刷新一次。只在「刚才确实断过」时触发,
     // 而且有未填完的表单或正在播放的媒体时【不刷】—— 见下面 canReloadSafely()。
     autoReconnect: true,
+    // 网站自己调 navigator.share 时弹系统分享面板(Android WebView 本身没有这个 API)
+    polyfillWebShare: true,
     reconnectText: '网络已恢复,正在刷新…',
     externalInAppBrowser: true, // 外链用应用内浏览器(false = 丢给系统浏览器)
     hideSplashDelay: 0,        // 收起启动页前多等几毫秒,给网站渲染时间
@@ -56,7 +59,7 @@
 
   // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
   // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
-  var SHELL_VERSION = '1.4.0';
+  var SHELL_VERSION = '1.5.0';
 
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
@@ -636,6 +639,65 @@
     // 等页面加载完再注册,别和首屏抢带宽
     if (document.readyState === 'complete') offline.register();
     else window.addEventListener('load', function () { offline.register(); }, { once: true });
+  }
+
+  // ---------- 8. 原生分享:补上 Web Share API ----------
+  // 很多电商站的「分享」按钮用的是标准的 navigator.share —— 浏览器里好好的,
+  // 但 Android WebView 根本没实现这个 API(navigator.share 是 undefined),网站要么
+  // 把按钮藏起来,要么降级成「复制链接」。这里用 Share 插件把它补上:网站一行不用改,
+  // 在 app 里就能弹出系统分享面板。
+  //
+  // 只在没有原生实现时才补,不覆盖已经有的(iOS 的 WKWebView 可能自带)。
+  // 行为照 Web Share 标准:title / text / url 至少要有一个;url 按当前页解析成绝对地址;
+  // 用户取消 reject 成 AbortError —— 网站一般就是靠这个分辨「取消」和「出错」。
+  // 不支持分享文件(files):Share 插件要的是本地路径,网页里的 File 对象给不了它,
+  // 所以 canShare({ files }) 如实返回 false,让网站走自己的降级。
+  if (CONFIG.polyfillWebShare && typeof navigator.share !== 'function') {
+    defineOn(navigator, 'share', function (data) {
+      data = data || {};
+      if (data.files && data.files.length) {
+        return Promise.reject(new DOMException('这个 app 里不支持分享文件', 'NotAllowedError'));
+      }
+      var payload = {};
+      if (data.title) payload.title = String(data.title);
+      if (data.text) payload.text = String(data.text);
+      if (data.url) {
+        try {
+          payload.url = new URL(String(data.url), location.href).href;
+        } catch (e) {
+          return Promise.reject(new TypeError('navigator.share(): url 不合法'));
+        }
+      }
+      if (!payload.title && !payload.text && !payload.url) {
+        return Promise.reject(new TypeError('navigator.share() 至少要有 title / text / url 之一'));
+      }
+      if (payload.title) payload.dialogTitle = payload.title;
+      return nativeCall('Share', 'share', payload).then(
+        function () { return undefined; },
+        function (e) {
+          var msg = (e && e.message) || String(e || '');
+          // Share 插件两端取消时的报错都是 "Share canceled"
+          if (/cancel/i.test(msg)) throw new DOMException('Share canceled', 'AbortError');
+          throw new Error(msg || 'Share failed');
+        });
+    });
+    if (typeof navigator.canShare !== 'function') {
+      defineOn(navigator, 'canShare', function (data) {
+        if (!data || (data.files && data.files.length)) return false;
+        if (data.url) {
+          try { new URL(String(data.url), location.href); } catch (e) { return false; }
+        }
+        return !!(data.title || data.text || data.url);
+      });
+    }
+  }
+
+  function defineOn(obj, name, fn) {
+    try {
+      Object.defineProperty(obj, name, { value: fn, configurable: true, writable: true });
+    } catch (e) {
+      try { obj[name] = fn; } catch (e2) { /* 只读就算了 */ }
+    }
   }
 
   // 给网站用:window.AppShell.toast('...') 之类。

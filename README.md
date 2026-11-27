@@ -206,6 +206,24 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 });
 ```
 
+**网站自己的 `navigator.share` 也能用(1.5.0 起)。** 很多站的「分享」按钮用的是
+标准的 Web Share API,浏览器里好好的,但 **Android WebView 根本没实现它**
+(`navigator.share` 是 `undefined`),网站要么把按钮藏起来,要么降级成复制链接。
+壳在 app 里用原生分享把它补上了,**网站一行不用改**:
+
+```js
+navigator.share({ title: '这双鞋不错', url: '/products/123' })
+  .catch(function (e) { if (e.name !== 'AbortError') console.warn(e); });
+```
+
+- 行为照标准:`title` / `text` / `url` 至少要一个;相对 `url` 按当前页解析;
+  用户取消 reject 成 `AbortError`
+- **不支持分享文件**,`navigator.canShare({ files })` 如实返回 `false`
+- 只在没有原生实现时才补,已经有的(iOS 的 WKWebView 可能自带)不覆盖
+- 网站如果是在**页面加载时**就判断 `navigator.share` 存不存在来决定显不显示按钮,
+  要让 `app-shell.js` 排在那段脚本**前面**;在点击时才判断就没有这个顺序问题
+- 不想要就把 `app-shell.js` 里 `CONFIG.polyfillWebShare` 改成 `false`
+
 > 加了新接口就把 `app-shell.js` 里的 `SHELL_VERSION` 加一,并同步改这张表。
 > `npm run verify` 会检查导出里有没有 `version` / `invoke` / `has` / `capabilities`。
 
