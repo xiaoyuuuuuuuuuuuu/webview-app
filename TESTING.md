@@ -344,7 +344,80 @@ iOS 那边要 Mac 上的 Safari → 开发 → 你的 iPhone。Windows 上没有
 
 ---
 
-## 6. 测完之后
+## 6. 真机实测结果(2026-11-27)
+
+**设备**:TECNO SPARK Go 2024(BG6),Android 13 / API 33,arm64。
+**方法**:adb 装包,把 WebView 的 DevTools socket 转发出来,用 CDP 的
+`Runtime.evaluate` 直接在页面里调 `AppShell.*`,拿**真实返回值**;副作用再去
+系统里核对(`dumpsys notification` / `dumpsys alarm` / MediaStore / 文件系统)。
+不是看屏幕猜的。
+
+### 通过
+
+| 项目 | 实测证据 |
+|---|---|
+| 18 个插件全部注册,`BarcodeScanner` 不在 | `logcat` 的 `Registering plugin instance` |
+| `AppShell.version` / `platform` | `1.3.0` / `android` |
+| safe area | 四个值全 0(`native` 模式正确) |
+| Tab 栏发布高度 | `--app-bottom-inset: 52px` |
+| User-Agent | 结尾 `... Mobile Safari/537.36 WebViewApp/1.0` |
+| 设备 ID | `d6631a73698b98da` |
+| 剪贴板 | 写进去用插件的 `read` 读回来一致(只做验证,仍然不对网站暴露读) |
+| 触觉反馈 | 七档调用都 resolve。**手感要人判断** |
+| 本地通知 · 立刻 | 系统里 `channel=general`(自建频道,不是兜底的 "Default")、`color=0xff1565c0`(themeColor)、图标是本包资源(不是系统蓝色感叹号) |
+| 本地通知 · 定时 | `dumpsys alarm` 里是 `type=RTC window=+11s` —— **非精确闹钟,系统给了 11 秒浮动窗口**。这就是撤掉 `SCHEDULE_EXACT_ALARM` 之后「可能晚到」的具体来源。到点准时出现 |
+| 本地通知 · 取消 | 排完立刻取消,18 秒后系统里没有那条 |
+| 通知权限流程 | `pm clear` 后首次调用弹出系统权限框,点允许后正常发出 |
+| 保存到相册 | 文件写入 + MediaStore 已登记(**但见下面「要知道的」第 2 条**) |
+| 生物识别 | 一个指纹都没录的机器上,用锁屏密码**验证通过**(见下面「修掉的」) |
+| 自动重连 · 页面干净 | 断网→恢复,页面自动刷新 |
+| 自动重连 · 有未填内容 | 输入框里填了字,断网→恢复,**页面没刷新,输入框内容还在** |
+| **离线冷启动(4.2 重点)** | **断网 + 杀掉 app + 重新打开**:正常显示缓存的页面,`AppShell` 可用,`swControlled: true`。这正是审核员会做的操作 |
+| 离线时导航到已缓存页面 | 正常打开,bridge 照样注入(证实「SW 必须传原始 request」那条规则) |
+| 下载 | 系统 `DownloadManager` 接手,发通知,文件大小正确 |
+
+### 修掉的(只有真机能发现)
+
+**`biometric.verify()` 从第 2 步起就没工作过。**插件原生侧只有
+`checkBiometry` 和 `internalAuthenticate`;`authenticate()` 只存在于插件的 JS 包装层。
+`AppShell.invoke()` 直接打原生 bridge、绕过包装层,于是调了一个不存在的方法 ——
+而 Capacitor 遇到这种情况**既不 resolve 也不 reject,Promise 永远悬着**。
+编译、`verify`、插件名检查全绿,真机表现只是「点了没反应」。
+已改为 `internalAuthenticate`,并加了两条 `verify` 检查(读插件真实源码里的 `@PluginMethod`)。
+
+**没录指纹但有锁屏密码时,验证被提前拒绝。**`checkBiometry` 返回
+`isAvailable: false` 不等于「没法验证」—— `allowDeviceCredential` 开着且
+`deviceIsSecure: true` 时,用锁屏密码照样能过。已修,并在上面那台机器上端到端验证通过。
+
+### 要知道的(不是 bug,是平台行为)
+
+1. **离线时 `location.reload()` 会显示原生兜底页**,而不是 SW 缓存。
+   冷启动和导航都走 SW 没问题,只有「刷新当前页」这个动作会绕过去。
+   兜底页自己会在网络恢复时跳回来(实测看到了),所以用户最终不受影响。
+   **别把这个当成「离线缓存坏了」** —— 测离线要用冷启动,不要用刷新。
+
+2. **「保存到相册」在 Android 上存进的是 app 自己的媒体目录**:
+   `Android/media/<包名>/<相册名>/`。系统相册里看得到(MediaStore 已登记),
+   但**卸载 app 时这个目录会被一起删掉**。这是插件写死的
+   (`MediaPlugin.java:237` 用 `getExternalMediaDirs()[0]`),没有选项能改。
+   好处是不需要任何存储权限。对「存优惠券」够用;要是用户会指望这些图永久保留
+   (比如发票、凭证),得换方案或者在界面上提示一句。
+
+3. **Android 上 `<a download="文件名">` 里的文件名不生效。**
+   原生的 `onDownloadStart` 拿不到这个属性,只拿得到 URL 和服务器的
+   `Content-Disposition`。实测链接写的是 `download="testing-sample.pdf"`,
+   存下来叫 `sample-1.pdf`(重名时系统自动加 `-1`)。
+   **要控制文件名,让服务器发 `Content-Disposition: attachment; filename="..."`。**
+
+### 没测的
+
+- iPhone(要 Sideloadly 重签,见第 2 节)
+- 推送(要 Firebase 凭据和服务器)
+- 深度链接(测试站在子路径下,`.well-known` 不在域名根目录)
+- 触觉反馈的**手感**和七档区别(只有人能判断)
+- 下拉刷新、返回键、转屏(纯手势,适合手点)
+
+## 7. 测完之后
 
 测试站只是脚手架。真正上架前这些还得换掉:
 

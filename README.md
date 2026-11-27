@@ -360,6 +360,8 @@ AppShell.haptic('error');     // 优惠码无效
 |---|---|
 | **生物识别不是登录** | 它只证明「手机的主人在场」,不证明身份。真正的登录态必须服务器签发、绑设备、可吊销、有有效期。注入的脚本也能触发一次解锁,所以**服务器侧必须二次校验** |
 | **相册在 Android 要指定相册** | `savePhoto` 的 `albumIdentifier` 在 Android 上必填。`app-capabilities.js` 会按 `CONFIG.albumName` 自动找/建一个,**记得把它改成你的 app 名** |
+| **Android 上卸载 app 会删掉存过的图** | 真机实测:图存进 `Android/media/<包名>/<相册名>/`,是 app 自己的媒体目录。系统相册里看得到,但卸载时一起删。插件写死的(`getExternalMediaDirs()[0]`),没得选。好处是不用存储权限。用户要永久保留的东西(发票、凭证)别只靠这个 |
+| **生物识别的方法名是 `internalAuthenticate`** | 不是 `authenticate`。后者只在插件 JS 包装层里,`invoke()` 绕过包装层,调它会**静默挂死**(不报错,Promise 永远不返回)。`verify` 现在会读插件源码挡住这类错误 |
 | **本地通知不是推送** | 它是这台手机自己排的,服务器发不了。服务器要主动找用户得走推送(`app-push.js`)。它的用处是「app 里发生了什么,过一会儿提醒用户回来」,不需要任何服务器 |
 | **通知频道的名字用户看得见** | 插件兜底频道就叫「Default」,会出现在系统设置里。`app-capabilities.js` 的 `CONFIG.notifyChannel` 自己建了一个,**改成你的业务分类**(「订单状态」「优惠提醒」)。频道建好后名字不能再用代码改,要改得连 `id` 一起换 |
 | **剪贴板只有写** | 插件有 `read()`,但**刻意没暴露**。读剪贴板能拿到用户在别处复制的密码和验证码,而 WebView 里的 XSS 就能调它;iOS 还会弹「xxx 粘贴自 yyy」。要读就让用户自己粘贴 |
@@ -465,6 +467,11 @@ bridge 清理,代价远大于收益。
 `.pdf .xls(x) .doc(x) .csv .zip .rar .7z .ppt(x) .apk .ipa .dmg .mp4 .mp3` 结尾的。
 像 `/export?type=pdf` 这种**路径里没有扩展名**的导出接口认不出来,给那个 `<a>`
 加上 `download` 属性就行。要改这个列表,改 `app-shell.js` 里 `CONFIG.downloadExtensions`。
+
+> **Android 上 `download="文件名"` 里的文件名不生效**(真机实测)。原生的
+> `onDownloadStart` 只拿得到 URL、`Content-Disposition` 和 MIME 类型,拿不到 HTML 属性。
+> 文件名由 `URLUtil.guessFileName` 从这几样推出来。**要控制文件名,让服务器发
+> `Content-Disposition: attachment; filename="订单-123.pdf"`** —— 这在 iOS 上也更可靠。
 
 Android 侧还有两点:下载请求会**带上 WebView 的 cookie**(所以登录态文件能下),
 以及 `POST_NOTIFICATIONS` 权限是在用户第一次点下载时才请求的(Android 13+),
