@@ -358,6 +358,9 @@ if (has('ios')) {
   check('能力用途字符串与开关一致', () => {
     const plist = read('ios/App/App/Info.plist');
     const active = enabledCapabilities(cfg);
+    // 同一个 key 可能被几个能力共用(scanner 和 cameraUpload 都要相机),
+    // 只要有一个开着的能力要它,它就该在
+    const wanted = new Set(active.flatMap((n) => Object.keys(CAPABILITIES[n].ios)));
     const bad = [];
     for (const [name, def] of Object.entries(CAPABILITIES)) {
       const on = active.includes(name);
@@ -365,8 +368,13 @@ if (has('ios')) {
         const present = plist.includes(`<key>${key}</key>`);
         // 开了却没有 → iOS 上调用会直接崩;关了却留着 → 审核会问这个权限干什么用
         if (on && !present) bad.push(`${name} 开着但 Info.plist 少 ${key}(先跑 npm run configure)`);
-        if (!on && present) bad.push(`${name} 关着但 Info.plist 还留着 ${key}`);
+        if (!on && present && !wanted.has(key)) bad.push(`${name} 关着但 Info.plist 还留着 ${key}`);
       }
+    }
+    // plist 里同一个 key 出现两次是非法的
+    for (const key of wanted) {
+      const count = plist.split(`<key>${key}</key>`).length - 1;
+      if (count > 1) bad.push(`Info.plist 里 ${key} 出现了 ${count} 次`);
     }
     return bad.length === 0 || bad.join(';');
   });
@@ -398,6 +406,7 @@ check('能力的插件名两边一致', () => {
   const js = read('website/app-shell.js');
   const bad = [];
   for (const [name, def] of Object.entries(CAPABILITIES)) {
+    if (!def.plugin) continue;   // 不带插件的能力(比如 cameraUpload),网站侧没有对应项
     // 用 indexOf 找 `name: 'Plugin'`,不写正则 —— 这一行写错的后果是 has() 永远
     // 返回 false 而且不报错,所以这个检查本身也要尽量简单到不会出错。
     const marker = name + ": '";
@@ -501,6 +510,7 @@ check('invoke 调的方法都登记过', () => {
   const re = /invoke\(\s*'([A-Za-z]+)'\s*,\s*'([A-Za-z]+)'/g;
   const byPlugin = {};
   for (const [name, def] of Object.entries(CAPABILITIES)) {
+    if (!def.plugin) continue;
     byPlugin[def.plugin] = { name, methods: def.nativeMethods || [] };
   }
   const bad = [];
@@ -565,6 +575,7 @@ check('开了的能力在网站侧都有接口', () => {
   const js = read('website/app-capabilities.js');
   const bad = [];
   for (const name of active) {
+    if (!CAPABILITIES[name].plugin) continue;   // 不带插件,网站侧本来就不用接口
     const api = CAPABILITIES[name].shellApi || [];
     if (!api.length) {
       bad.push(`${name}: 登记表里没写 shellApi,无法检查`);
@@ -584,7 +595,7 @@ soft('开启的能力都装了插件', () => {
   if (!active.length) return true;
   const pkg = JSON.parse(read('package.json'));
   const deps = Object.assign({}, pkg.dependencies, pkg.devDependencies);
-  const missing = active.filter((n) => !deps[CAPABILITIES[n].npm]);
+  const missing = active.filter((n) => CAPABILITIES[n].npm && !deps[CAPABILITIES[n].npm]);
   return missing.length === 0 ||
     '这些开关开着但插件没装: ' + missing.map((n) => `${n} → npm i ${CAPABILITIES[n].npm}`).join('; ');
 });

@@ -387,11 +387,16 @@ if (existsSync(join(root, 'ios'))) {
   // 能力开关要的 iOS 用途字符串。声明了却没有对应功能,审核会问这个权限干什么用;
   // 反过来少了用途字符串,调用相机 / 面容 ID 是【直接崩】,不是返回错误。
   patch('ios/App/App/Info.plist', 'iOS 能力用途字符串', (s) => {
+    // 同一个 key 可能被多个能力声明(scanner 和 cameraUpload 都要相机)。
+    // plist 里重复的 key 是非法的,所以先到先得,只写一条。
+    const seen = new Set();
     const lines = activeCapabilities.flatMap((name) =>
-      Object.entries(CAPABILITIES[name].ios).map(
-        ([key, text]) =>
-          '\n\t<!-- capabilities.' + name + ' -->\n\t<key>' + key + '</key>\n\t<string>' + text + '</string>',
-      ),
+      Object.entries(CAPABILITIES[name].ios)
+        .filter(([key]) => (seen.has(key) ? false : seen.add(key)))
+        .map(
+          ([key, text]) =>
+            '\n\t<!-- capabilities.' + name + ' -->\n\t<key>' + key + '</key>\n\t<string>' + text + '</string>',
+        ),
     );
     return managedBlock(s, CAP_BEGIN_IOS, CAP_END_IOS, lines.join(''), '\n</dict>');
   });

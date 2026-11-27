@@ -48,7 +48,7 @@ export const CAPABILITIES = {
   //   iOS 上【网页里的「拍照上传」会崩】(缺用途字符串碰相机 = crash,不是报错)。
   //   Android 不受影响(没声明 CAMERA 时 Capacitor 走系统相机 intent,反而更顺)。
   //   这是有意识的取舍,不是遗漏 —— 详见 README 的「已知缺口:iOS 上的拍照上传」。
-  //   站上一旦有上传图片的入口,要么开回扫码,要么单独加一个 cameraUpload 开关。
+  //   站上一旦有上传图片的入口,把下面的 cameraUpload 开关打开就行,不用开回扫码。
   scanner: {
     plugin: 'BarcodeScanner',
     npm: '@capacitor-mlkit/barcode-scanning',
@@ -67,6 +67,30 @@ export const CAPABILITIES = {
     shellApi: ['scan'],
   },
 
+  // 网页里的「拍照上传」:<input type="file" accept="image/*"> 选「拍照」那一项。
+  //
+  // 【不装插件】。这条路 Capacitor 原生已经实现了(BUILD_SPEC 0.2:onShowFileChooser
+  // 含 capture 属性和相机直拍),这个开关只补 iOS 缺的那一条用途字符串 ——
+  // iOS 上缺 NSCameraUsageDescription 时一碰相机就是 crash,不是报错。
+  //
+  // Android 留空是故意的:实测 Capacitor 的 isMediaCaptureSupported() 在没声明
+  // CAMERA 时返回 true,走系统相机 app 的 intent,不需要自己的权限,反而更顺
+  // (BridgeWebChromeClient.java:307-313)。声明了 CAMERA 反而要多一次运行时授权。
+  //
+  // 默认关:测试站没有上传图片的入口,声明一个用不到的相机权限,审核会追问。
+  // 真站上一旦出现上传图片的地方(头像、评价晒图、退货凭证、客服发图)就打开。
+  //
+  // plugin / npm 为 null:verify 里所有"插件名对不对、插件装没装、网站侧有没有接口"
+  // 的检查都会跳过它,只检查用途字符串和开关是否一致。
+  // 和 scanner 共用 NSCameraUsageDescription:两个都开时 configure 只写一条(先到先得)。
+  cameraUpload: {
+    plugin: null,
+    npm: null,
+    ios: {
+      NSCameraUsageDescription: '拍照上传图片(比如评价晒图、退货凭证)时需要使用相机。',
+    },
+    android: [],
+  },
   biometric: {
     // 注册名实测是 BiometricAuthNative(@CapacitorPlugin(name = "BiometricAuthNative")),
     // 不是包名暗示的 BiometricAuth。写错 has() 会永远返回 false 且不报错。

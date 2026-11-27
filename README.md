@@ -216,12 +216,14 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 ```json
 "capabilities": {
   "scanner": false,
+  "cameraUpload": false,
   "biometric": false,
   "saveToAlbum": false,
   "localNotifications": false,
   "clipboard": false,
   "deviceId": false,
-  "inAppReview": false
+  "inAppReview": false,
+  "haptics": false
 }
 ```
 
@@ -264,16 +266,21 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 > 不需要自己的权限,反而更顺(`BridgeWebChromeClient.java:307-313`)。
 > 所以这一条**只影响 iOS**。
 >
-> **你的站上一旦有上传图片的入口就必须补**。两种补法:
+> **你的站上一旦有上传图片的入口就必须补**,补法是一个开关:
 >
-> 1. 临时验证:直接把 `NSCameraUsageDescription` 加进
->    `scripts/templates/Info.plist` 的受管区块外面
-> 2. 正式做法:在 `scripts/capabilities.mjs` 里加一个开关(比如 `cameraUpload`),
->    `ios` 字段写 `{ NSCameraUsageDescription: '...' }`,`android` 留空,
->    `shellApi` 留空(这一项不需要网站侧接口,是 WebView 自带的)。
->    这样它和别的能力一样可开可关、关掉能清干净、`verify` 也会盯着。
+> ```json
+> "capabilities": { "cameraUpload": true }
+> ```
 >
-> 文案要写清楚用途,比如「上传头像和评价图片时需要使用相机」。
+> 然后 `npm run sync`。它只往 `Info.plist` 写一条 `NSCameraUsageDescription`,
+> `android` 留空(理由同上),**不装插件**(拍照上传是 WebView 自带的)。
+> 和别的能力一样可开可关、关掉能清干净、`verify` 也盯着。
+>
+> 和扫码共用这一个 key:两个都开时 `configure` 只写一条,`verify` 也会检查
+> `Info.plist` 里没有重复的 key(plist 里重复的 key 是非法的)。
+>
+> 文案在 `scripts/capabilities.mjs` 的 `cameraUpload.ios` 里,上线前按你站上的
+> 真实用途改一下,比如「上传头像和评价图片时需要使用相机」。
 
 **为什么默认全关**:在 WebView 里 XSS 不再只是网页 bug —— 注入的脚本能调用所有已装插件,
 而这几项恰好是摄像头、相册、生物识别这类高价值目标。每开一个都要想清楚值不值,见「安全」一节。

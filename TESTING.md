@@ -59,8 +59,11 @@ appName   testing
 > (`BridgeWebChromeClient.java:307-313`)。
 >
 > **什么时候必须补**:你的真站上出现任何「上传图片」的入口(头像、评价晒图、
-> 退货凭证、客服发图)。补法见 README 的「原生能力开关」一节。
-> 补之前,iOS 用户点到那个按钮就是崩。
+> 退货凭证、客服发图)。
+>
+> **补法**:`app.config.json` 的 `capabilities.cameraUpload` 改成 `true`,
+> `npm run sync`。只加 iOS 的用途字符串,不装插件、不动 Android。
+> 打开之后这一项就可以测了。没打开之前,iOS 用户点到那个按钮就是崩。
 
 ---
 
