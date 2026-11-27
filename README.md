@@ -771,6 +771,27 @@ base64 -i release.keystore | tr -d '\n'   # macOS
 版本号:`versionCode` 自动用 GitHub 的运行次数(每次递增,Play 要求必须递增),
 `versionName` 在 Run workflow 的输入框里填。
 
+### 调试包也用固定签名(可选,真机测试时省事)
+
+不配的话,CI 每次都随机生成一把 debug 签名:新的调试包装不上去
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`),只能先卸载 —— 会清掉 app 数据和
+「保存到相册」存的图。配一个 secret 就固定下来:
+
+```bash
+keytool -genkeypair -keystore debug.keystore -storetype PKCS12 \
+  -alias androiddebugkey -storepass android -keypass android \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+base64 -w 0 debug.keystore | gh secret set ANDROID_DEBUG_KEYSTORE_BASE64
+```
+
+- 密码和别名**必须**是上面这两个(`android` / `androiddebugkey`),`build.gradle` 里写死的。
+- 它只签调试包,跟上架用的 release keystore 无关。
+- CI 日志的「核对 APK 的签名证书」一步会打出包里实际的证书 SHA-256,
+  两次构建应该一样。**别只看 keystore 的指纹**:第一版就是 keystore 指纹对了、
+  Gradle 却没用它(放在 `~/.android/debug.keystore` 在 CI 上不生效),
+  现在改成由 `ANDROID_DEBUG_KEYSTORE_FILE` 显式指定。
+- 这个项目已经配好了,keystore 的本机副本在 `~/.android/debug.keystore`。
+
 ### Google Play 的硬要求
 
 新 app 和更新都必须 target API 36(2026-08-31 起生效)。本项目已经是 36,不用改。
