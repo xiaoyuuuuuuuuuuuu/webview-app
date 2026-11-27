@@ -37,6 +37,12 @@ export const CAPABILITIES = {
   // Android debug APK 涨 9.2 MiB(实测:19,142,295 → 9,480,634 字节),因为插件把离线模型、
   // play-services-code-scanner 和 androidx.camera 全栈都拉进来。要开先读 README
   // 的「为什么没开扫码」—— 网站侧实现在 commit 3634166 里,可以取回。
+  //
+  // ⚠ 连带影响:NSCameraUsageDescription 挂在这一项上,所以关掉扫码之后
+  //   iOS 上【网页里的「拍照上传」会崩】(缺用途字符串碰相机 = crash,不是报错)。
+  //   Android 不受影响(没声明 CAMERA 时 Capacitor 走系统相机 intent,反而更顺)。
+  //   这是有意识的取舍,不是遗漏 —— 详见 README 的「已知缺口:iOS 上的拍照上传」。
+  //   站上一旦有上传图片的入口,要么开回扫码,要么单独加一个 cameraUpload 开关。
   scanner: {
     plugin: 'BarcodeScanner',
     npm: '@capacitor-mlkit/barcode-scanning',

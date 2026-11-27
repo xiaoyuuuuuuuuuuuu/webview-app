@@ -38,6 +38,26 @@ appName   testing
 | **深度链接 / Universal Links** | ❌ | 两个原因叠在一起:`.well-known` 必须在**域名根目录**,而测试站在 `/webview-app/` 子路径下;而且免费签名的包没有 `associated-domains`。要等你的真域名 |
 | **推送通知** | ❌ | 要 Firebase 凭据 + 你自己的服务器 |
 | **强制更新** | ❌ | `updateCheckUrl` 是空的(默认关闭) |
+| **iOS 上的「拍照上传」** | ⚠ **别测,会崩** | 见下面的「已知缺口」 |
+
+> ### ⚠ 已知缺口:iOS 上网页里的「拍照上传」会崩
+>
+> 网页里的 `<input type="file" accept="image/*">`,在 iOS 上选「拍照」那一项会
+> **直接崩溃**(不是报错)。原因是 `Info.plist` 里没有 `NSCameraUsageDescription` ——
+> iOS 上任何走到相机的操作缺了用途字符串都是 crash,这是系统行为。
+>
+> 它是去掉扫码时被一起撤掉的(扫码的开关负责声明它)。
+> **这是有意识的决定,不是忘了**:现在的测试站没有上传图片的地方,
+> 而声明一个用不到的权限会在审核时被追问。
+>
+> **Android 不受影响**,而且相反:实测 Capacitor 的 `isMediaCaptureSupported()`
+> 在「没有声明 CAMERA 权限」时返回 true(走系统相机 app 的 intent,
+> 不需要自己的权限),所以 Android 上不声明反而更顺
+> (`BridgeWebChromeClient.java:307-313`)。
+>
+> **什么时候必须补**:你的真站上出现任何「上传图片」的入口(头像、评价晒图、
+> 退货凭证、客服发图)。补法见 README 的「原生能力开关」一节。
+> 补之前,iOS 用户点到那个按钮就是崩。
 
 ---
 

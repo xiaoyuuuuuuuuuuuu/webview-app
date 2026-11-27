@@ -230,6 +230,28 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 > 生物识别**不要用 `capacitor-native-biometric`** —— 它依赖 `@capacitor/core ^3.4.3`,
 > 最后一次发布是 2023-06,停在 Capacitor 3 时代。
 
+> #### ⚠ 已知缺口:iOS 上的「拍照上传」
+>
+> 网页里的 `<input type="file" accept="image/*">` 在 iOS 上选「拍照」会**直接崩**,
+> 因为 `Info.plist` 里没有 `NSCameraUsageDescription`(iOS 上碰相机缺用途字符串就是 crash)。
+> 它随扫码开关一起被撤掉了,**这是有意识的决定**:现在没有上传图片的场景,
+> 而声明用不到的权限审核会追问。
+>
+> **Android 不受影响**:Capacitor 在「没声明 CAMERA」时走系统相机 intent,
+> 不需要自己的权限,反而更顺(`BridgeWebChromeClient.java:307-313`)。
+> 所以这一条**只影响 iOS**。
+>
+> **你的站上一旦有上传图片的入口就必须补**。两种补法:
+>
+> 1. 临时验证:直接把 `NSCameraUsageDescription` 加进
+>    `scripts/templates/Info.plist` 的受管区块外面
+> 2. 正式做法:在 `scripts/capabilities.mjs` 里加一个开关(比如 `cameraUpload`),
+>    `ios` 字段写 `{ NSCameraUsageDescription: '...' }`,`android` 留空,
+>    `shellApi` 留空(这一项不需要网站侧接口,是 WebView 自带的)。
+>    这样它和别的能力一样可开可关、关掉能清干净、`verify` 也会盯着。
+>
+> 文案要写清楚用途,比如「上传头像和评价图片时需要使用相机」。
+
 **为什么默认全关**:在 WebView 里 XSS 不再只是网页 bug —— 注入的脚本能调用所有已装插件,
 而这几项恰好是摄像头、相册、生物识别这类高价值目标。每开一个都要想清楚值不值,见「安全」一节。
 
