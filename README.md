@@ -143,6 +143,14 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 | `AppShell.requestReview()` | 请求系统弹评分窗。**弹不出来是正常的** |
 | `AppShell.haptic(kind)` | 震一下。`light`(默认)/`medium`/`heavy`/`success`/`warning`/`error`/`select`。**永不失败,不用 catch** |
 | `AppShell.reconnect()` | 立刻刷新。网络恢复后壳会自动刷一次,这是给你手动触发用的 |
+| `AppShell.listen(plugin, event, cb)` | 注册原生插件事件。**网站自己要监听原生事件时用这个,别直接用 `Capacitor.addListener`** —— 见下 |
+
+> **为什么要 `AppShell.listen`**(真机测出来的):Capacitor 每次页面开始加载时会
+> 清空所有原生监听(`BridgeWebViewClient.onPageStarted` → `bridge.reset()`),
+> 指望新页面重新注册。但**后退导航**时页面从缓存秒开,脚本注册完了 reset 才到,
+> 刚注册的就被清掉 —— 后退过一次之后监听**静默失效**,没有任何报错。
+> `AppShell.listen` 会在页面加载完之后补注册(先 remove 再 add,不会重复)。
+> 壳自己的返回键、深度链接、网络状态、推送监听都已经改用它了。
 | `AppShell.offline.clear()` | 清 SW 缓存并注销,排查「页面不更新」 |
 | `AppShell.push.register()` | 请求通知权限并注册(要先加载 `app-push.js`) |
 | `AppShell.exit()` | 退出 app(Android) |
