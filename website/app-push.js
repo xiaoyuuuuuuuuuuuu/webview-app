@@ -43,7 +43,15 @@
 
   var call = AppShell.call;
 
+  // 用 AppShell.listen 而不是直接 Cap.addListener —— 前者扛得住 Capacitor 在
+  // 页面导航时的 reset(见 app-shell.js 里「原生事件监听」那一节)。
+  // 直接注册的话,后退过一次之后点推送通知就不会跳转了。
+  // 老版本 app-shell.js 没有 listen,退回到直接注册。
   function listen(event, cb) {
+    if (AppShell.listen) {
+      AppShell.listen('PushNotifications', event, cb);
+      return;
+    }
     try {
       if (Cap.addListener) Cap.addListener('PushNotifications', event, cb);
     } catch (e) { /* 插件不可用就算了 */ }

@@ -56,7 +56,7 @@
 
   // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
   // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
-  var SHELL_VERSION = '1.3.0';
+  var SHELL_VERSION = '1.4.0';
 
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
@@ -162,11 +162,60 @@
     }
     return out;
   }
-  function listen(plugin, event, cb) {
+  // ---------- 原生事件监听:扛得住 Capacitor 的 reset ----------
+  //
+  // 【真机测出来的竞态】Capacitor 在每次页面开始加载时
+  // (BridgeWebViewClient.onPageStarted)调 bridge.reset(),把所有插件的
+  // 原生监听清空,指望新页面的脚本再注册一遍。
+  //
+  // 正常加载时顺序没问题:先 reset,后跑脚本注册。
+  // 但【后退导航】时页面从缓存秒开 —— TECNO BG6 上实测,后退后 76ms 脚本就
+  // 注册完了,而 onPageStarted 是异步投递到 UI 线程的,比注册晚到,
+  // 于是刚注册的监听被清掉。后果是:后退过一次之后,返回键(双击退出、
+  // appshell:back)、深度链接、网络状态、推送点击【全部静默失效】,
+  // 没有任何报错。
+  //
+  // 对策:把每个监听登记下来,页面加载完之后补注册。补注册是先 remove 再 add:
+  // - remove() 里没有 await,removeListener 是同步发出的,原生侧一定先收到
+  //   remove(旧) 再收到 add(新),不会出现两个监听同时在的窗口
+  // - 旧的已经被 reset 清掉时,原生 removeListener 是空操作
+  //   (Plugin.java 里 getSavedCall 为 null 就什么都不做)
+  // 所以补几次都只会剩一个监听。
+  var durable = [];
+
+  function attach(entry) {
     try {
-      if (Cap.addListener) Cap.addListener(plugin, event, cb);
+      if (Cap.addListener) entry.handle = Cap.addListener(entry.plugin, entry.event, entry.cb);
     } catch (e) { /* 插件不可用就算了 */ }
   }
+
+  function listen(plugin, event, cb) {
+    var entry = { plugin: plugin, event: event, cb: cb, handle: null };
+    durable.push(entry);
+    attach(entry);
+    return entry;
+  }
+
+  function rearm() {
+    for (var i = 0; i < durable.length; i++) {
+      var e = durable[i];
+      try {
+        if (e.handle && e.handle.remove) {
+          var p = e.handle.remove();
+          if (p && p.catch) p.catch(function () {});
+        }
+      } catch (x) { /* 删不掉就算了,反正马上补一个新的 */ }
+      attach(e);
+    }
+  }
+
+  // reset 什么时候送达没有保证,所以加载完补一次,稍后再兜底补一次。
+  window.addEventListener('load', function () {
+    setTimeout(rearm, 0);
+    setTimeout(rearm, 800);
+  });
+  // 真从 bfcache 恢复时(脚本不重跑,但原生那边已经 reset 过)也要补
+  window.addEventListener('pageshow', function (ev) { if (ev.persisted) rearm(); });
 
   // 同站判断。外链分流和深度链接两处都用,所以放在这一层。
   var baseHost = location.hostname.replace(/^www\./, '');
@@ -603,6 +652,10 @@
     isSameSite: isSameSite,   // app-push.js 用它拦住推送里的站外 url
     offline: offline,
     reconnect: function () { return reconnect(); },
+    // 注册原生插件事件。和直接用 Capacitor.addListener 的区别是【扛得住页面导航时的
+    // reset】—— 网站自己要监听原生事件(比如 App 的 appStateChange)请用这个,
+    // 否则后退过一次之后监听就静默丢了。返回值可以忽略。
+    listen: function (plugin, event, cb) { return listen(plugin, event, cb); },
     share: function (opts) { return call('Share', 'share', opts || {}); },
     exit: function () { return call('App', 'exitApp', {}); },
   };
