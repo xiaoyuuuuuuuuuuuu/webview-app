@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 scripts/configure.mjs 按 app.config.json 生成,别手改 -->
+<resources>
+    <bool name="splashLightStatusBar">true</bool>
+</resources>

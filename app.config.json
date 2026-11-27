@@ -9,6 +9,8 @@
 
   "themeColor": "#1565C0",
   "splashBackground": "#ffffff",
+  "_splashBackgroundDark": "深色模式下启动页的背景色,留空就和上面 splashBackground 一样。状态栏图标深浅会按背景自动选。",
+  "splashBackgroundDark": "",
   "statusBarStyle": "light",
 
   "_safeArea": "native = 原生把 WebView 让开系统栏(默认,网站不用改);cover = 内容铺到屏幕边缘,网站 CSS 必须自己让开",

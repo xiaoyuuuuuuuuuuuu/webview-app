@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAPABILITIES, enabledCapabilities, validateCapabilities } from './capabilities.mjs';
+import { prefersDarkIcons } from './colors.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'app.config.json'), 'utf8'));
@@ -195,6 +196,76 @@ if (has('android')) {
     }
     return read('capacitor.config.ts').includes("smallIcon: 'ic_stat_notify'")
       || 'capacitor.config.ts 的 LocalNotifications.smallIcon 没指向 ic_stat_notify';
+  });
+
+  // 【真机查出来的】splashBackground 以前只写进 colors.xml,没有任何地方引用 ——
+  // Android 12+ 的系统启动页按启动主题画,背景是系统默认色,状态栏图标是白的。
+  // 这一类"配置写了但没接上"的问题,没有检查就永远发现不了。
+  check('启动主题接上了 splashBackground', () => {
+    const styles = read('android/app/src/main/res/values/styles.xml');
+    const m = styles.match(/<style name="AppTheme\.NoActionBarLaunch"[\s\S]*?<\/style>/);
+    if (!m) return 'styles.xml 里找不到 AppTheme.NoActionBarLaunch';
+    const want = [
+      ['windowSplashScreenBackground', '@color/splashBackground'],
+      ['android:windowLightStatusBar', '@bool/splashLightStatusBar'],
+      ['android:statusBarColor', '@color/splashBackground'],
+    ];
+    const missing = want.filter(([k, v]) => !m[0].includes(`<item name="${k}">${v}</item>`));
+    return missing.length === 0 ||
+      '启动主题少了: ' + missing.map(([k, v]) => `${k}=${v}`).join(', ') +
+      ' —— 少了的话系统启动页会用系统默认色/白色状态栏图标';
+  });
+
+  check('启动页的颜色和状态栏图标与配置一致', () => {
+    const bad = [];
+    const res = 'android/app/src/main/res';
+    const colorOf = (xml) => (xml.match(/<color name="splashBackground">([^<]*)<\/color>/) || [])[1];
+    const boolOf = (xml) => (xml.match(/<bool name="splashLightStatusBar">([^<]*)<\/bool>/) || [])[1];
+
+    const c = colorOf(read(`${res}/values/colors.xml`));
+    if ((c || '').toLowerCase() !== String(cfg.splashBackground).toLowerCase()) {
+      bad.push(`colors.xml 里是 ${c},app.config.json 里是 ${cfg.splashBackground}`);
+    }
+    if (!has(`${res}/values/splash.xml`)) {
+      bad.push('values/splash.xml 不在(先跑 npm run configure)');
+    } else {
+      const b = boolOf(read(`${res}/values/splash.xml`));
+      const want = String(prefersDarkIcons(cfg.splashBackground));
+      if (b !== want) bad.push(`状态栏图标深浅是 ${b},按 ${cfg.splashBackground} 应该是 ${want}`);
+    }
+
+    const night = `${res}/values-night/splash.xml`;
+    if (cfg.splashBackgroundDark) {
+      if (!has(night)) {
+        bad.push('配了 splashBackgroundDark 但 values-night/splash.xml 不在(先跑 npm run configure)');
+      } else {
+        const x = read(night);
+        if ((colorOf(x) || '').toLowerCase() !== cfg.splashBackgroundDark.toLowerCase()) {
+          bad.push(`深色模式背景是 ${colorOf(x)},配置是 ${cfg.splashBackgroundDark}`);
+        }
+        if (boolOf(x) !== String(prefersDarkIcons(cfg.splashBackgroundDark))) {
+          bad.push('深色模式的状态栏图标深浅和背景不匹配');
+        }
+      }
+    } else if (has(night)) {
+      bad.push('没配 splashBackgroundDark,但 values-night/splash.xml 还在 —— 深色模式会用它而不是 splashBackground');
+    }
+    return bad.length === 0 || bad.join(';');
+  });
+
+  // 启动页分两段:前一段是系统画的(图标深浅看启动主题),后一段是插件让启动页
+  // 继续停留、而 activity 窗口已经建好了 —— 这时状态栏图标由 StatusBar 插件的
+  // statusBarStyle 决定。两者不一致,后一段就会撞色(比如深色启动页配深色图标)。
+  // 注意 Capacitor 的命名:'light' 是"浅色背景、深色字",'dark' 反过来。
+  soft('启动页前后两段的状态栏图标一致', () => {
+    const style = cfg.statusBarStyle;
+    if (style !== 'light' && style !== 'dark') return true;
+    const splashWantsDark = prefersDarkIcons(cfg.splashBackground);
+    const styleGivesDark = style === 'light';
+    if (splashWantsDark === styleGivesDark) return true;
+    return `启动页背景 ${cfg.splashBackground} 适合${splashWantsDark ? '深色' : '浅色'}图标,` +
+      `但 statusBarStyle "${style}" 给的是${styleGivesDark ? '深色' : '浅色'}图标 —— ` +
+      '启动页后半段(页面加载期间)状态栏会撞色。要么改 statusBarStyle,要么换启动页背景色';
   });
 
   check('targetSdk >= 36 (Google Play 要求)', () => {

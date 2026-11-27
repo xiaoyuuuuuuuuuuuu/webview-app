@@ -16,7 +16,23 @@
     </style>
 
 
+    <!--
+      启动主题。Android 12+ 的系统启动页按这个主题画 —— 不是按 splash.png。
+
+      下面三项以前都没设,真机(TECNO BG6 / Android 13)上看到的是:
+        背景是系统默认的米色,不是 app.config.json 里的 splashBackground;
+        状态栏图标是白的,浅色背景上头 2 秒几乎看不见;深色模式全看系统。
+      值都由 scripts/configure.mjs 按 app.config.json 写,这里只管引用:
+        @color/splashBackground       values/colors.xml(深色模式另见 values-night/splash.xml)
+        @bool/splashLightStatusBar    values/splash.xml,按 WCAG 对比度算出来的
+
+      statusBarColor 是给 Android 12 以下的:那里启动页的状态栏默认可能是黑的,
+      配上深色图标就看不见了。Android 15+ 会忽略它(强制 edge-to-edge),无害。
+    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splashBackground</item>
+        <item name="android:windowLightStatusBar">@bool/splashLightStatusBar</item>
+        <item name="android:statusBarColor">@color/splashBackground</item>
     </style>
 </resources>

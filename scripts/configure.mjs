@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAPABILITIES, enabledCapabilities, validateCapabilities } from './capabilities.mjs';
+import { HEX_COLOR, prefersDarkIcons } from './colors.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'app.config.json'), 'utf8'));
@@ -42,8 +43,16 @@ if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/i.test(cfg.appId)) {
 if (/changeme/i.test(cfg.appId)) {
   errors.push('appId 还没改 —— 上架后就不能再改了,现在定好');
 }
-if (!/^#[0-9a-f]{6}$/i.test(cfg.themeColor)) {
+if (!HEX_COLOR.test(cfg.themeColor)) {
   errors.push(`themeColor 要是 #RRGGBB 格式: ${cfg.themeColor}`);
+}
+// 以前只校验 themeColor。splashBackground 写成 white 或 #fff 会生成不合法的
+// Android 颜色资源,要到 CI 编译时才报错 —— 在这里就挡住。
+if (!HEX_COLOR.test(cfg.splashBackground || '')) {
+  errors.push(`splashBackground 要是 #RRGGBB 格式: ${cfg.splashBackground}`);
+}
+if (cfg.splashBackgroundDark && !HEX_COLOR.test(cfg.splashBackgroundDark)) {
+  errors.push(`splashBackgroundDark 要是 #RRGGBB 格式,或者留空: ${cfg.splashBackgroundDark}`);
 }
 if (cfg.safeArea !== undefined && cfg.safeArea !== 'native' && cfg.safeArea !== 'cover') {
   errors.push(`safeArea 只能是 "native" 或 "cover": ${cfg.safeArea}`);
@@ -287,6 +296,57 @@ if (existsSync(join(root, 'android'))) {
     set('splashBackground', cfg.splashBackground);
     return out;
   });
+
+  // ---------- 启动页(Android 12+ 的系统启动页) ----------
+  //
+  // 【真机查出来的】启动主题 AppTheme.NoActionBarLaunch 的父主题是 Theme.SplashScreen,
+  // Android 12+ 的系统启动页就按它画。以前它只设了 android:background,结果:
+  //   - splashBackground 只写进了 colors.xml,【没有任何地方引用】,配了等于没配;
+  //     背景是系统默认色(TECNO BG6 上是米色,换台手机就是别的颜色)
+  //   - 没设 windowLightStatusBar,浅色背景上状态栏图标是白的,头 2 秒几乎看不见
+  //   - 深色模式下长什么样全看系统
+  // 现在 styles.xml 引用 @color/splashBackground 和 @bool/splashLightStatusBar,
+  // 这里按 app.config.json 写这两个值。图标深浅按 WCAG 对比度算(见 colors.mjs)。
+  const SPLASH_MARK = '由 scripts/configure.mjs 按 app.config.json 生成,别手改';
+  const splashXml = (lightStatusBar, color) =>
+    '<?xml version="1.0" encoding="utf-8"?>\n' +
+    `<!-- ${SPLASH_MARK} -->\n` +
+    '<resources>\n' +
+    (color ? `    <color name="splashBackground">${color}</color>\n` : '') +
+    `    <bool name="splashLightStatusBar">${lightStatusBar}</bool>\n` +
+    '</resources>\n';
+
+  const writeIfChanged = (rel, content, label) => {
+    const abs = join(root, rel);
+    if (existsSync(abs) && readFileSync(abs, 'utf8') === content) return;
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+    console.log(`✓ ${label}`);
+  };
+
+  // 浅色(默认):背景色已经在 colors.xml 里,这里只写图标深浅
+  writeIfChanged(
+    'android/app/src/main/res/values/splash.xml',
+    splashXml(prefersDarkIcons(cfg.splashBackground)),
+    'Android 启动页状态栏图标',
+  );
+
+  // 深色模式:配了 splashBackgroundDark 才写 values-night;没配就删掉,
+  // 让深色模式也用上面那套 —— 总之【不再交给系统决定】。
+  // 只删带生成标记的文件,手写的同名文件不碰。
+  const nightRel = 'android/app/src/main/res/values-night/splash.xml';
+  if (cfg.splashBackgroundDark) {
+    writeIfChanged(
+      nightRel,
+      splashXml(prefersDarkIcons(cfg.splashBackgroundDark), cfg.splashBackgroundDark),
+      'Android 启动页(深色模式)',
+    );
+  } else if (existsSync(join(root, nightRel)) && readFileSync(join(root, nightRel), 'utf8').includes(SPLASH_MARK)) {
+    rmSync(join(root, nightRel));
+    const dir = dirname(join(root, nightRel));
+    if (readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
+    console.log('✓ 去掉深色模式启动页(splashBackgroundDark 没配,深色模式用浅色那套)');
+  }
 }
 
 // ---------- iOS ----------
