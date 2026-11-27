@@ -305,6 +305,44 @@
     return invoke('InAppReview', 'requestReview', {}).then(function () { return true; });
   }
 
+  // ---------------------------------------------------------------- 触觉反馈
+
+  // 把好记的名字映射到插件的三组 API。
+  // impact 是"撞一下"(轻重三档),notification 是"结果反馈"(成功/警告/失败),
+  // selection 是"选中了一项"(列表、分段控件滑过去那种)。
+  var HAPTIC_KINDS = {
+    light:   ['impact', { style: 'LIGHT' }],
+    medium:  ['impact', { style: 'MEDIUM' }],
+    heavy:   ['impact', { style: 'HEAVY' }],
+    success: ['notification', { type: 'SUCCESS' }],
+    warning: ['notification', { type: 'WARNING' }],
+    error:   ['notification', { type: 'ERROR' }],
+    select:  ['selectionChanged', {}],
+  };
+
+  /**
+   * 震一下。
+   *
+   *   AppShell.haptic()           // 默认 light
+   *   AppShell.haptic('success')  // 下单成功
+   *   AppShell.haptic('error')    // 优惠码无效
+   *
+   * 可选值:light / medium / heavy / success / warning / error / select
+   *
+   * 【这一项失败了不要提示用户】。设备没有马达、用户在系统设置里关了振动、
+   * 处于静音模式 —— 都会让它什么都不发生,而这些都不是错误。
+   * 所以下面吞掉所有失败,永远 resolve。调用处不用写 catch。
+   *
+   * iOS 上还有一条:impact 只在真机上有感觉,模拟器没有。
+   */
+  function haptic(kind) {
+    if (!AppShell.has('haptics')) return Promise.resolve(false);
+    var spec = HAPTIC_KINDS[kind || 'light'] || HAPTIC_KINDS.light;
+    return invoke('Haptics', spec[0], spec[1])
+      .then(function () { return true; })
+      .catch(function () { return false; });   // 刻意吞掉
+  }
+
   // ---------------------------------------------------------------- 对外
 
   AppShell.saveImage = saveImage;
@@ -317,5 +355,6 @@
   AppShell.copy = copy;
   AppShell.deviceId = deviceId;
   AppShell.requestReview = requestReview;
+  AppShell.haptic = haptic;
   AppShell.capabilitiesConfig = CONFIG;
 })();

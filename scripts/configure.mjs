@@ -19,7 +19,18 @@ try {
   if (siteUrl.protocol !== 'https:') {
     errors.push(`siteUrl 必须是 https:// 开头 (现在是 ${siteUrl.protocol}//)`);
   }
-  if (/CHANGE-ME/i.test(cfg.siteUrl)) {
+  // User-Agent 头只允许 ASCII 可见字符。写了中文或换行,轻则被服务器丢掉,
+// 重则让整个请求头坏掉 —— 而且这种错只在真机上才看得出来,所以在这里挡住。
+if (cfg.appendUserAgent) {
+  const ua = String(cfg.appendUserAgent);
+  if (!/^[\x20-\x7E]+$/.test(ua)) {
+    errors.push('appendUserAgent 只能用 ASCII 可见字符(不能有中文、换行、制表符),现在是: ' + JSON.stringify(ua));
+  }
+  if (ua.length > 64) {
+    errors.push(`appendUserAgent 太长了(${ua.length} 字符),控制在 64 以内`);
+  }
+}
+if (/CHANGE-ME/i.test(cfg.siteUrl)) {
     errors.push('siteUrl 还没改 —— 把 app.config.json 里的 siteUrl 换成你的网址');
   }
 } catch {

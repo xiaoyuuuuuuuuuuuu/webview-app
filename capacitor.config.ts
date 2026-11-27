@@ -19,6 +19,11 @@ const config: CapacitorConfig = {
   appName: appConfig.appName,
   webDir: 'www',
 
+  // 追加到 WebView User-Agent 末尾。空字符串时【整个键都不出现】——
+  // Capacitor 看到空串也会照样拼一个空格上去,不如干脆不设。
+  // 两端都生效(Capacitor 的顶层 appendUserAgent)。
+  ...(appConfig.appendUserAgent ? { appendUserAgent: appConfig.appendUserAgent } : {}),
+
   server: {
     // 直接加载线上网站。网站内容一改 app 里立刻就变,不用重新上架。
     url: appConfig.siteUrl,

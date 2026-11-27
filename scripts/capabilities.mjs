@@ -143,6 +143,20 @@ export const CAPABILITIES = {
     shellApi: ['deviceId'],
   },
 
+  haptics: {
+    plugin: 'Haptics',
+    npm: '@capacitor/haptics',
+    ios: {},
+    // 插件自己的库 manifest 声明了 android.permission.VIBRATE,Gradle 会合并进来。
+    // 这条【不用撤】:VIBRATE 是 normal 权限,安装时自动授予、不弹框,
+    // Play 的 Data safety 也不用申报 —— 和 local-notifications 那个
+    // SCHEDULE_EXACT_ALARM 完全不是一回事(那个会挡住发版)。
+    // 这里不重复声明,交给 manifest 合并。
+    android: [],
+    androidMeta: [],
+    shellApi: ['haptic'],
+  },
+
   inAppReview: {
     plugin: 'InAppReview',
     npm: '@capacitor-community/in-app-review',

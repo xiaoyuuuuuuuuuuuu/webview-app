@@ -17,6 +17,9 @@
   "_updateCheckUrl": "强制更新用的版本接口,留空就是关闭。格式见 website/app-version.json",
   "updateCheckUrl": "",
 
+  "_appendUserAgent": "追加到 User-Agent 末尾的一小段,留空就是不改。服务器靠它分辨「这个请求来自 app」,可以据此隐藏「下载 App」横幅、走不同埋点。只能用 ASCII 可见字符(UA 头不允许中文),建议写成 名字/版本 的形式。",
+  "appendUserAgent": "WebViewApp/1.0",
+
   "enablePullToRefresh": true,
   "enablePushNotifications": false,
 
@@ -28,6 +31,7 @@
     "localNotifications": true,
     "clipboard": true,
     "deviceId": true,
-    "inAppReview": true
+    "inAppReview": true,
+    "haptics": true
   }
 }

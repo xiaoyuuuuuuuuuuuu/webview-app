@@ -141,6 +141,8 @@ WordPress 的话放在主题的 `footer.php`;PHP 站放在公共 footer 里。
 | `AppShell.copy(text)` | 复制到剪贴板(**只有写,没有读**) |
 | `AppShell.deviceId()` | 设备标识。**不是永久的,也不是账号** |
 | `AppShell.requestReview()` | 请求系统弹评分窗。**弹不出来是正常的** |
+| `AppShell.haptic(kind)` | 震一下。`light`(默认)/`medium`/`heavy`/`success`/`warning`/`error`/`select`。**永不失败,不用 catch** |
+| `AppShell.reconnect()` | 立刻刷新。网络恢复后壳会自动刷一次,这是给你手动触发用的 |
 | `AppShell.offline.clear()` | 清 SW 缓存并注销,排查「页面不更新」 |
 | `AppShell.push.register()` | 请求通知权限并注册(要先加载 `app-push.js`) |
 | `AppShell.exit()` | 退出 app(Android) |
@@ -226,6 +228,7 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 | `clipboard` | `@capacitor/clipboard` | 什么都不声明(写剪贴板不需要权限) |
 | `deviceId` | `@capacitor/device` | 什么都不声明。但**要写进 Play 的 Data safety** |
 | `inAppReview` | `@capacitor-community/in-app-review` | 什么都不声明 |
+| `haptics` | `@capacitor/haptics` | 什么都不声明。插件自带 `VIBRATE`(normal 权限,自动授予、不弹框、Data safety 不用填) |
 
 > 生物识别**不要用 `capacitor-native-biometric`** —— 它依赖 `@capacitor/core ^3.4.3`,
 > 最后一次发布是 2023-06,停在 Capacitor 3 时代。
@@ -254,6 +257,45 @@ AppShell.invoke('Media', 'savePhoto', { path: imageUrl }).then(function () {
 
 **为什么默认全关**:在 WebView 里 XSS 不再只是网页 bug —— 注入的脚本能调用所有已装插件,
 而这几项恰好是摄像头、相册、生物识别这类高价值目标。每开一个都要想清楚值不值,见「安全」一节。
+
+#### 自定义 User-Agent
+
+`app.config.json` 的 `appendUserAgent` 会追加到 WebView 的 User-Agent 末尾,两端都生效:
+
+```json
+"appendUserAgent": "WebViewApp/1.0"
+```
+
+服务器靠它分辨「这个请求来自 app」,可以据此隐藏「下载 App」横幅、走不同埋点、
+给 app 用户不同的缓存策略。比在前端靠 `.in-app` class 判断可靠 ——
+**那个只有页面渲染之后才知道,UA 是请求一发出去就带着的**。
+
+留空就是完全不改 UA(`configure.mjs` 会把这个键整个拿掉,而不是追加一个空格)。
+
+两条限制 `configure.mjs` 会挡住,因为它们只在真机上才看得出来:
+
+- **只能 ASCII 可见字符** —— UA 头不允许中文,写了轻则被服务器丢掉,重则整个请求头坏掉
+- **不超过 64 字符**
+
+#### 自动重连
+
+网络恢复之后壳会自动刷新一次,让用户看到最新内容而不是断网期间的缓存。
+
+但**有未填完的东西时不刷** —— 在电商站上冲掉一个填了一半的收货地址,
+比「内容稍微旧一点」严重得多。`app-shell.js` 的 `canReloadSafely()` 会检查四件事,
+任何一条命中就只提示不刷新:
+
+1. 光标正停在输入框里
+2. 有被改动过的表单控件(和初始值不一样)
+3. `contenteditable` 里有内容
+4. 正在播放音视频
+
+不想要这个行为就把 `CONFIG.autoReconnect` 改成 `false`,
+网站想自己决定什么时候刷就调 `AppShell.reconnect()`。
+
+> 断网兜底页(`errorPath` 那个)是**另一条路径**,它自己就会在网络恢复时跳回网站,
+> 还带一个轮询兜底(有些安卓机不触发 `online` 事件)。两者不冲突:
+> 兜底页管「页面压根没加载出来」,这里管「页面开着,中途断了又回来」。
 
 **而且这是过审要求**:Info.plist 里声明了用途字符串却没有对应功能,Apple 会问这个权限干什么用;
 Android 多一个权限,Google Play 的 Data safety 表格就要多填一条。开关把「声明权限」和
@@ -304,6 +346,12 @@ AppShell.copy(orderNo).then(function () { AppShell.toast('订单号已复制'); 
 
 // 评分弹窗 —— 在用户刚顺利完成一件事之后调
 AppShell.requestReview();   // 没弹出来是正常的,别重试、别提示
+
+// 触觉反馈 —— 用户能立刻感到「这不是网页」的那个信号
+AppShell.haptic('light');     // 加入购物车
+AppShell.haptic('success');   // 下单成功
+AppShell.haptic('error');     // 优惠码无效
+// 不用 catch:设备没马达、用户关了振动、静音模式,都只是什么都不发生,不是错误
 ```
 
 几件必须知道的事:

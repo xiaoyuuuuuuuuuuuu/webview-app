@@ -71,6 +71,8 @@ window.addEventListener('load', function () {
     ['AppShell.has', !!(A && A.has)],
     ['AppShell.notify (第 3 步)', !!(A && A.notify)],
     ['AppShell.copy (第 3 步)', !!(A && A.copy)],
+    ['AppShell.haptic', !!(A && A.haptic)],
+    ['AppShell.reconnect', !!(A && A.reconnect)],
     ['window.Capacitor', !!window.Capacitor],
     ['Capacitor.isNativePlatform', !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())],
     ['<html> 有 .in-app 吗', document.documentElement.classList.contains('in-app')],
@@ -129,6 +131,7 @@ window.addEventListener('load', function () {
     ['location.pathname', location.pathname],
     ['屏幕', window.innerWidth + ' × ' + window.innerHeight + '  dpr=' + (window.devicePixelRatio || 1)],
     ['User-Agent', navigator.userAgent],
+    ['UA 里有 WebViewApp 标记吗', navigator.userAgent.indexOf('WebViewApp/') !== -1],
   ]);
 });
 </script>

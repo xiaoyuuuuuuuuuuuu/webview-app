@@ -120,6 +120,18 @@ if (has('android')) {
     return c.server?.errorPath === 'offline.html' || `现在是 ${c.server?.errorPath}`;
   });
 
+  // 这一项错了只在真机上看得出来(服务器收到的 UA 不对),所以机器来对
+  check('appendUserAgent 已同步', () => {
+    const c = JSON.parse(read('android/app/src/main/assets/capacitor.config.json'));
+    const want = cfg.appendUserAgent || '';
+    if (!want) {
+      return c.appendUserAgent === undefined
+        || `app.config.json 没设 appendUserAgent,但同步出来的 config 里还有 ${JSON.stringify(c.appendUserAgent)}`;
+    }
+    return c.appendUserAgent === want
+      || `config 里是 ${JSON.stringify(c.appendUserAgent)},app.config.json 里是 ${JSON.stringify(want)}(先跑 npm run sync)`;
+  });
+
   check('allowNavigation 包含你的域名', () => {
     const c = JSON.parse(read('android/app/src/main/assets/capacitor.config.json'));
     const list = c.server?.allowNavigation || [];

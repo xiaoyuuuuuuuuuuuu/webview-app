@@ -30,6 +30,10 @@
     exitHintText: '再按一次退出',
     offlineText: '网络已断开',
     onlineText: '网络已恢复',
+    // 网络恢复后自动刷新一次。只在「刚才确实断过」时触发,
+    // 而且有未填完的表单或正在播放的媒体时【不刷】—— 见下面 canReloadSafely()。
+    autoReconnect: true,
+    reconnectText: '网络已恢复,正在刷新…',
     externalInAppBrowser: true, // 外链用应用内浏览器(false = 丢给系统浏览器)
     hideSplashDelay: 0,        // 收起启动页前多等几毫秒,给网站渲染时间
     // safe area。要和 app.config.json 的 safeArea 保持一致:
@@ -52,7 +56,7 @@
 
   // 壳的版本号。网站侧可以用它判断「这个壳支不支持某个新接口」——
   // 用户手机里装的 app 可能比网站旧好几个版本,加了新接口就把这里 +1。
-  var SHELL_VERSION = '1.2.0';
+  var SHELL_VERSION = '1.3.0';
 
   var Cap = window.Capacitor;
   if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return; // 浏览器里直接退出
@@ -122,6 +126,7 @@
     clipboard: 'Clipboard',
     deviceId: 'Device',
     inAppReview: 'InAppReview',
+    haptics: 'Haptics',
     // 壳一直都装的 7 个,列出来是为了 has() 对它们也能回答
     share: 'Share',
     browser: 'Browser',
@@ -342,8 +347,67 @@
   }
 
   // ---------- 4. 网络状态 ----------
+  //
+  // 断网时的兜底页(errorPath / sw.js 那个)自己会在网络恢复时跳回来,
+  // 那条路径不归这里管。这里管的是另一种情况:页面【已经打开着】,
+  // 中途断网又恢复 —— 这时页面上很可能是断网期间的缓存内容或者半截数据。
+  var reconnect;
   (function () {
     var wasOffline = false;
+
+    /**
+     * 自动刷新前的安全检查。
+     *
+     * 自动刷新最大的风险是【把用户填了一半的东西冲掉】——
+     * 在电商站上这可能是一整个收货地址,比"内容稍微旧一点"严重得多。
+     * 所以这里宁可不刷:有任何迹象表明用户正在输入或在看媒体,就只提示不刷新。
+     */
+    function canReloadSafely() {
+      try {
+        // 1. 光标正停在可输入的东西里
+        var a = document.activeElement;
+        if (a && (a.isContentEditable ||
+                  /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName || ''))) return false;
+
+        // 2. 有被改动过的表单控件(和初始值不一样)
+        var f = document.querySelectorAll('input, textarea, select');
+        for (var i = 0; i < f.length; i++) {
+          var el = f[i];
+          var t = (el.type || '').toLowerCase();
+          if (t === 'hidden' || t === 'submit' || t === 'button' || t === 'reset') continue;
+          if (t === 'checkbox' || t === 'radio') {
+            if (el.checked !== el.defaultChecked) return false;
+          } else if (el.tagName === 'SELECT') {
+            for (var j = 0; j < el.options.length; j++) {
+              if (el.options[j].selected !== el.options[j].defaultSelected) return false;
+            }
+          } else if (el.value !== el.defaultValue) {
+            return false;
+          }
+        }
+
+        // 3. contenteditable 的富文本框
+        var ce = document.querySelectorAll('[contenteditable=""], [contenteditable="true"]');
+        for (var k = 0; k < ce.length; k++) {
+          if ((ce[k].textContent || '').trim()) return false;
+        }
+
+        // 4. 正在播放音视频,刷新会打断
+        var m = document.querySelectorAll('video, audio');
+        for (var p = 0; p < m.length; p++) {
+          if (!m[p].paused && !m[p].ended) return false;
+        }
+      } catch (e) {
+        return false;   // 判断不了就别刷
+      }
+      return true;
+    }
+
+    /** 手动重连:无条件刷新。等价于 WebViewGold 的 reconnect:// */
+    reconnect = function () {
+      location.reload();
+    };
+
     function offline() {
       if (wasOffline) return;
       wasOffline = true;
@@ -354,6 +418,13 @@
       if (!wasOffline) return;
       wasOffline = false;
       root.classList.remove('in-app-offline');
+      if (CONFIG.autoReconnect && canReloadSafely()) {
+        toast(CONFIG.reconnectText, 1200);
+        // 等提示条露个脸再刷,否则用户看不到发生了什么
+        setTimeout(function () { location.reload(); }, 600);
+        return;
+      }
+      // 不能安全刷新:只提示。网站想自己决定就调 AppShell.reconnect()
       toast(CONFIG.onlineText, 1600);
     }
     listen('Network', 'networkStatusChange', function (s) {
@@ -531,6 +602,7 @@
     safeArea: safeArea,
     isSameSite: isSameSite,   // app-push.js 用它拦住推送里的站外 url
     offline: offline,
+    reconnect: function () { return reconnect(); },
     share: function (opts) { return call('Share', 'share', opts || {}); },
     exit: function () { return call('App', 'exitApp', {}); },
   };
