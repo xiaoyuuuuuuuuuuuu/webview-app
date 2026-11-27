@@ -12,6 +12,9 @@
 #   • 要推送,再加一个 secret(内容就是 Firebase 下载的那个文件的全文):
 #       ANDROID_GOOGLE_SERVICES_JSON
 #     没加也能正常出包,只是推送收不到。这个文件带密钥,所以不进 git。
+#   • 想让每次出的 debug APK 能直接覆盖安装(不用先卸载),加一个 secret:
+#       ANDROID_DEBUG_KEYSTORE_BASE64   —— debug keystore 的 base64(见 README)
+#     没加就是每次随机签名,照样能出包。
 name: Android
 
 on:
@@ -69,6 +72,25 @@ jobs:
           # sdkmanager 会报 Failed to find package 'tools' 然后 exit 1(这是 action 的默认值)。
           # runner 镜像自带 Android SDK,这一步只需要接受 license 和设好 ANDROID_HOME。
           packages: ''
+
+      # 调试包默认用 Gradle 的 ~/.android/debug.keystore,runner 每次都是新机器,
+      # 就每次随机生成一把 —— 新包和旧包签名不同,装的时候报
+      # INSTALL_FAILED_UPDATE_INCOMPATIBLE,只能先卸载(会清掉 app 数据)。
+      # 配了这个 secret 就用同一把,新包可以直接覆盖安装。
+      # 它只签调试包,和上架用的 release keystore 无关。
+      - name: 还原固定的 debug keystore (没配就用随机的)
+        env:
+          DEBUG_KS: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DEBUG_KS" ]; then
+            mkdir -p ~/.android
+            printf '%s' "$DEBUG_KS" | base64 -d > ~/.android/debug.keystore
+            # Gradle 的默认值:密码 android,别名 androiddebugkey。不对就早点失败
+            keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
+              | grep -E 'SHA256:' | sed 's/^\s*/固定 debug 签名 /'
+          else
+            echo "::notice::没有配 ANDROID_DEBUG_KEYSTORE_BASE64,用随机生成的 debug 签名 —— 新包不能覆盖安装旧包,得先卸载"
+          fi
 
       - name: Gradle 构建
         working-directory: android
