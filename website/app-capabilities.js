@@ -92,16 +92,31 @@
     if (missing) return Promise.reject(missing);
 
     var opts = options || {};
+    var allowDeviceCredential =
+      opts.allowDeviceCredential !== undefined ? opts.allowDeviceCredential : CONFIG.allowDeviceCredential;
+
     return biometryCheck().then(function (info) {
-      if (info && info.isAvailable === false) {
+      // 【真机上测出来的坑】isAvailable === false 不等于"这台设备没法验证身份"。
+      //
+      // 最常见的情况:用户设了锁屏密码,但一个指纹/面容都没录
+      // (checkBiometry 返回 isAvailable:false + code:'biometryNotEnrolled',
+      //  同时 deviceIsSecure:true)。这时只要 allowDeviceCredential 开着,
+      // 插件会把 DEVICE_CREDENTIAL 加进允许的验证方式
+      // (AuthActivity.java:61-65),用锁屏密码照样能验过。
+      //
+      // 之前这里只看 isAvailable,直接抛 unsupported —— 等于把一条本来能走通的路
+      // 自己堵死了,而且用户完全不知道为什么。实测的那台机器就正好是这个状态。
+      var canUseDeviceCredential = allowDeviceCredential && info && info.deviceIsSecure === true;
+
+      if (info && info.isAvailable === false && !canUseDeviceCredential) {
         // reason 是插件给的原因(没录指纹、设备不支持、被锁定…),直接透出去更好排查
         throw capError('unsupported', '这台设备用不了生物识别:' + (info.reason || '未知原因'));
       }
+
       return invoke('BiometricAuthNative', 'authenticate', {
         reason: opts.reason || CONFIG.biometricReason,
         androidTitle: opts.androidTitle || CONFIG.biometricAndroidTitle,
-        allowDeviceCredential:
-          opts.allowDeviceCredential !== undefined ? opts.allowDeviceCredential : CONFIG.allowDeviceCredential,
+        allowDeviceCredential: allowDeviceCredential,
         cancelTitle: opts.cancelTitle,
       }).then(function () {
         return true;
