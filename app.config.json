@@ -9,7 +9,7 @@
 
   "themeColor": "#1565C0",
   "splashBackground": "#ffffff",
-  "_splashBackgroundDark": "深色模式下启动页的背景色,留空就和上面 splashBackground 一样。状态栏图标深浅会按背景自动选。",
+  "_splashBackgroundDark": "深色模式下启动页的背景色,留空就和上面 splashBackground 一样。网站有深色模式的话填网站的深色背景色,不然深色模式下冷启动会先白一下。",
   "splashBackgroundDark": "",
   "statusBarStyle": "light",
 

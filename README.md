@@ -22,6 +22,7 @@
 
   "themeColor": "#1565C0",
   "splashBackground": "#ffffff",
+  "splashBackgroundDark": "",
   "statusBarStyle": "light"
 }
 ```
@@ -57,6 +58,13 @@ npm run assets
 ```
 
 启动页同理:`assets/splash.png` 和 `assets/splash-dark.png`(都是 2732x2732)。
+**但 Android 12 起系统不用这两张图**:启动页固定是「背景色 + app 图标」,
+背景色取 `splashBackground`;深色模式取 `splashBackgroundDark`,留空就用同一个色。
+网站有深色模式的话,把它填成网站的深色背景色,不然深色模式下冷启动会先白一下。
+这两张图只在 iOS 和 Android 11 及以下用。
+
+有些手机上启动页头 ~2 秒的状态栏图标沿用上一个界面(实测 TECNO:从桌面点开是白图标,
+配白色启动页就看不见),这一段是系统画的,配置管不到。实测数据见 TESTING.md 第 6 节。
 
 想重新生成占位图(比如改了主题色):`npm run assets:placeholder`
 

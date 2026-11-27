@@ -303,10 +303,11 @@ if (existsSync(join(root, 'android'))) {
   // Android 12+ 的系统启动页就按它画。以前它只设了 android:background,结果:
   //   - splashBackground 只写进了 colors.xml,【没有任何地方引用】,配了等于没配;
   //     背景是系统默认色(TECNO BG6 上是米色,换台手机就是别的颜色)
-  //   - 没设 windowLightStatusBar,浅色背景上状态栏图标是白的,头 2 秒几乎看不见
   //   - 深色模式下长什么样全看系统
   // 现在 styles.xml 引用 @color/splashBackground 和 @bool/splashLightStatusBar,
   // 这里按 app.config.json 写这两个值。图标深浅按 WCAG 对比度算(见 colors.mjs)。
+  // 注意:启动页头 ~2 秒的状态栏图标在 TECNO 上沿用上一个界面,这个 bool 管不到,
+  // 见 styles.xml 里的说明。
   const SPLASH_MARK = '由 scripts/configure.mjs 按 app.config.json 生成,别手改';
   const splashXml = (lightStatusBar, color) =>
     '<?xml version="1.0" encoding="utf-8"?>\n' +
