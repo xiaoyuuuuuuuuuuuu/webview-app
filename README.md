@@ -23,7 +23,7 @@
   "themeColor": "#1565C0",
   "splashBackground": "#ffffff",
   "splashBackgroundDark": "",
-  "statusBarStyle": "light"
+  "statusBarStyle": "auto"
 }
 ```
 
@@ -32,6 +32,10 @@
 - `siteUrl` 必须是 **https**。http 的站 WebView 会直接拒绝加载。
 - `appId` 一旦上架就**永远不能改**,现在想清楚。格式是反过来的域名,
   比如域名 `shop.com` → `com.shop.app`。只能小写字母、数字和点。
+- `themeColor` 是品牌色:进度条、通知图标,还有 **Android 的状态栏底色**。
+  `statusBarStyle` 管状态栏图标深浅,留 `"auto"` 就行 —— Android 按 `themeColor`
+  挑对比度高的那个(`#1565C0` 上是白图标),iOS 跟系统深浅色走。
+  也可以写死成 `"light"`(深色图标)或 `"dark"`(白图标),选了看不清的组合 `verify` 会提醒。
 - `extraAllowedHosts` 平时留空。只有当你的站要跳到别的域名并且那个页面
   **必须留在 app 里**(比如自建的支付页)才加进去 —— 每加一个都是放宽安全边界,
   见下面「安全」一节。
