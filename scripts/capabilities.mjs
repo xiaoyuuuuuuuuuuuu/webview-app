@@ -19,6 +19,12 @@
  *   ios         —— 要往 Info.plist 写的用途字符串
  *   android     —— 要往 AndroidManifest 加的权限
  *   androidMeta —— 要往 <application> 里加的 <meta-data>
+ *   nativeMethods —— 我们【真的会通过 invoke() 调】的原生方法名。
+ *                 verify 会拿它和插件 Android 源码里的 @PluginMethod 对一遍。
+ *                 为什么要这条:invoke() 直接打原生 bridge,绕过插件的 JS 包装层。
+ *                 包装层里有的方法,原生侧不一定有同名的 —— biometric 就踩过:
+ *                 JS 层叫 authenticate(),原生层其实叫 internalAuthenticate。
+ *                 【调错名字不会报错,会静默挂死】,Promise 永远不 settle。
  *   shellApi    —— 这个能力在 website/app-capabilities.js 里对应的 AppShell 成员。
  *                 verify 用它检查「开关开了但网站侧没接口」—— 扫码那次就差这一条:
  *                 开关、权限、插件全对,网站却没有能调的东西,而且没人会发现。
@@ -75,6 +81,8 @@ export const CAPABILITIES = {
     android: [],
     androidMeta: [],
     shellApi: ['biometric'],
+    // ⚠ 是 internalAuthenticate,不是 authenticate。原因见文件头的 nativeMethods。
+    nativeMethods: ['checkBiometry', 'internalAuthenticate'],
   },
 
   saveToAlbum: {
@@ -90,6 +98,7 @@ export const CAPABILITIES = {
     android: [],
     androidMeta: [],
     shellApi: ['saveImage'],
+    nativeMethods: ['getAlbums', 'createAlbum', 'savePhoto'],
   },
 
   localNotifications: {
@@ -116,6 +125,7 @@ export const CAPABILITIES = {
     // 另外 isExactNotification 默认是 true,所以网站侧调用时显式传 false,免得每次都刷警告。
     androidRemove: ['android.permission.SCHEDULE_EXACT_ALARM'],
     shellApi: ['notify', 'cancelNotify'],
+    nativeMethods: ['checkPermissions', 'requestPermissions', 'schedule', 'cancel', 'createChannel'],
   },
 
   clipboard: {
@@ -129,6 +139,7 @@ export const CAPABILITIES = {
     // 读剪贴板能拿到用户在别处复制的密码和验证码,是真的隐私风险;
     // 而且 iOS 会弹"xxx 粘贴自 yyy"的提示,体验也差。见 README 的「安全」一节。
     shellApi: ['copy'],
+    nativeMethods: ['write'],
   },
 
   deviceId: {
@@ -141,6 +152,7 @@ export const CAPABILITIES = {
     // identifierForVendor 在"同一厂商的 app 全部卸载后"也会变。
     // 别拿它当账号用,也别拿它做跨 app 追踪。要写进 Play 的 Data safety。
     shellApi: ['deviceId'],
+    nativeMethods: ['getId'],
   },
 
   haptics: {
@@ -155,6 +167,7 @@ export const CAPABILITIES = {
     android: [],
     androidMeta: [],
     shellApi: ['haptic'],
+    nativeMethods: ['impact', 'notification', 'selectionChanged'],
   },
 
   inAppReview: {
@@ -166,6 +179,7 @@ export const CAPABILITIES = {
     // ⚠ 两端系统都有频率限制,所以"调了但什么都没弹"是正常结果,不是错误。
     // 代码不能因为没弹出来就报错或重试。
     shellApi: ['requestReview'],
+    nativeMethods: ['requestReview'],
   },
 };
 

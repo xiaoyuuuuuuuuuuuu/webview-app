@@ -336,6 +336,81 @@ check('能力的插件名和真插件一致', () => {
   return bad.length === 0 || bad.join(';');
 });
 
+// 这一条是真机测出来的那个 bug 的系统性修复。
+//
+// AppShell.invoke() 直接打原生 bridge,【绕过插件的 JS 包装层】。所以只能调
+// 原生侧真实存在的 @PluginMethod。包装层里有的名字,原生侧不一定有同名的 ——
+// biometric 就是:JS 层叫 authenticate(),原生层其实叫 internalAuthenticate。
+//
+// 调错名字的后果不是报错,是【静默挂死】:Capacitor 找不到方法,既不 resolve
+// 也不 reject,Promise 永远悬着。编译、插件名检查、权限检查全都发现不了,
+// 真机上的表现只是"点了没反应"。所以必须让机器来对。
+check('调的原生方法都真实存在', () => {
+  const bad = [];
+  let checked = 0;
+
+  for (const [name, def] of Object.entries(CAPABILITIES)) {
+    const methods = def.nativeMethods || [];
+    if (!methods.length) continue;
+    const base = join(root, 'node_modules', def.npm, 'android');
+    if (!existsSync(base)) continue;   // 插件没装,跳过
+
+    // 把插件 Android 源码里所有 @PluginMethod 的方法名收起来(Java 和 Kotlin 都认)
+    const declared = new Set();
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.(java|kt)$/.test(e.name)) {
+          const src = readFileSync(full, 'utf8');
+          // @PluginMethod 之后的第一个方法名
+          const re = /@PluginMethod[\s\S]{0,200}?(?:public|private|protected|internal)?\s*(?:void|fun)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+          let m;
+          while ((m = re.exec(src)) !== null) declared.add(m[1]);
+        }
+      }
+    };
+    try { walk(base); } catch (e) { continue; }
+    if (declared.size === 0) continue;   // 读不出来就别误报
+
+    checked++;
+    for (const method of methods) {
+      if (!declared.has(method)) {
+        bad.push(`${name}: ${def.plugin}.${method} 在原生侧不存在(实际有: ${[...declared].sort().join(', ')})`);
+      }
+    }
+  }
+
+  if (checked === 0) return true;
+  return bad.length === 0 || bad.join(';');
+});
+
+// 另一个方向:app-capabilities.js 里实际 invoke 的每一对(插件, 方法)
+// 都必须登记在 nativeMethods 里 —— 否则加了新调用却没人对它做上面那个检查。
+check('invoke 调的方法都登记过', () => {
+  if (!has('website/app-capabilities.js')) return true;
+  const js = read('website/app-capabilities.js');
+  const active = enabledCapabilities(cfg);
+  // 只看 invoke('Plugin', 'method' 这种字面量写法
+  const re = /invoke\(\s*'([A-Za-z]+)'\s*,\s*'([A-Za-z]+)'/g;
+  const byPlugin = {};
+  for (const [name, def] of Object.entries(CAPABILITIES)) {
+    byPlugin[def.plugin] = { name, methods: def.nativeMethods || [] };
+  }
+  const bad = [];
+  let m;
+  while ((m = re.exec(js)) !== null) {
+    const [, plugin, method] = m;
+    const entry = byPlugin[plugin];
+    if (!entry) { bad.push(`调了 ${plugin}.${method},但登记表里没有这个插件`); continue; }
+    if (!active.includes(entry.name)) continue;   // 能力关着,先不管
+    if (!entry.methods.includes(method)) {
+      bad.push(`调了 ${plugin}.${method},但 ${entry.name} 的 nativeMethods 里没登记它`);
+    }
+  }
+  return bad.length === 0 || [...new Set(bad)].join(';');
+});
+
 // 反方向:插件装了但开关没开。这个状态是危险的 —— Capacitor 会把所有已安装的
 // 插件都编进 app(XSS 影响面已经扩大了),但开关没开就没声明权限和 iOS 用途字符串,
 // 结果 has() 返回 true、调用却必然失败,而且 iOS 上缺用途字符串是直接崩。

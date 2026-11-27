@@ -113,13 +113,33 @@
         throw capError('unsupported', '这台设备用不了生物识别:' + (info.reason || '未知原因'));
       }
 
-      return invoke('BiometricAuthNative', 'authenticate', {
+      // 【方法名是 internalAuthenticate,不是 authenticate】
+      //
+      // 插件的原生侧只有两个 @PluginMethod:checkBiometry 和 internalAuthenticate。
+      // 那个好看的 authenticate() 只存在于插件【JS 包装层】里(base.js),
+      // 它做的事就是调 internalAuthenticate 再把错误类型转成 BiometryError。
+      //
+      // 而 AppShell.invoke() 是直接打原生 bridge 的,绕过了 JS 包装层 ——
+      // 所以必须用原生那边真实存在的名字。
+      //
+      // 调错名字的后果【不是报错,是静默挂死】:Capacitor 收到一个找不到的方法,
+      // 既不 resolve 也不 reject,Promise 永远悬着。真机实测过:
+      //   authenticate          -> 超时未返回
+      //   internalAuthenticate  -> 正常 reject "No fingerprints enrolled."
+      // 这也是为什么编译、verify、插件名检查全绿却一直是坏的。
+      return invoke('BiometricAuthNative', 'internalAuthenticate', {
         reason: opts.reason || CONFIG.biometricReason,
         androidTitle: opts.androidTitle || CONFIG.biometricAndroidTitle,
         allowDeviceCredential: allowDeviceCredential,
         cancelTitle: opts.cancelTitle,
       }).then(function () {
         return true;
+      }, function (err) {
+        // 把插件自己的错误码透出来,让网站能分清「用户点了取消」和「真失败」。
+        // 用户取消是最常见的一种,不该弹"出错了"。
+        var pluginCode = (err && err.cause && err.cause.code) || '';
+        if (/cancel/i.test(pluginCode)) throw capError('cancelled', '用户取消了验证');
+        throw err;
       });
     });
   }
