@@ -177,6 +177,20 @@ if (has('android')) {
     return bad.length === 0 || bad.join(';');
   });
 
+  // 推送关着就不该把推送插件编进 app:否则包里带着 c2dm 权限和 firebase 的类,
+  // 配置却写着推送关闭。capacitor.config.ts 用 includePlugins 排除它,这里盯着结果。
+  check('推送插件跟着开关走', () => {
+    const settings = read('android/capacitor.settings.gradle');
+    const included = settings.includes("':capacitor-push-notifications'");
+    if (!cfg.enablePushNotifications && included) {
+      return '推送关着,但 Android 工程里还有推送插件(先跑 npm run sync)';
+    }
+    if (cfg.enablePushNotifications && !included) {
+      return '推送开着,但 Android 工程里没有推送插件(先跑 npm run sync)';
+    }
+    return true;
+  });
+
   // tools:node="remove" 没有这个命名空间就是编译错误,不是静默失效
   check('tools 命名空间跟着开关走', () => {
     const manifest = read('android/app/src/main/AndroidManifest.xml');

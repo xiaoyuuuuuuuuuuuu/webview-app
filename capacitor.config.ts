@@ -2,6 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // Node 22+ 的 ESM loader 要求 JSON 导入带 import attribute,不加会让 `cap sync`
 // 解析 capacitor.config.ts 时报 ERR_IMPORT_ATTRIBUTE_MISSING。
 import appConfig from './app.config.json' with { type: 'json' };
+import pkg from './package.json' with { type: 'json' };
 
 const siteHost = new URL(appConfig.siteUrl).host;
 
@@ -14,8 +15,25 @@ const allowNavigation = [
   ...appConfig.extraAllowedHosts,
 ];
 
+// 推送关着的时候,把推送插件从原生工程里整个拿掉。
+//
+// 为什么要这一步:Capacitor 默认会把 package.json 里所有插件都编进 app,不管我们
+// 的开关怎么写。实测 enablePushNotifications=false 的 debug APK 里照样带着
+// com.google.android.c2dm.permission.RECEIVE 和 firebase-messaging 的类 ——
+// 配置写着"推送关闭",包里却有推送的权限和代码,Play 的 Data safety 就说不清了。
+//
+// includePlugins 是白名单:设了就只用它,不设就是 Capacitor 自己扫全部依赖。
+// 名单里混进 @capacitor/core 这种不是插件的包没关系,CLI 会把解析不出插件的
+// 过滤掉(@capacitor/cli 的 plugin.js:getPlugins → resolvePlugin)。
+// 推送开着时返回 undefined,行为和以前一模一样。
+const PUSH_PLUGIN = '@capacitor/push-notifications';
+const includePlugins = appConfig.enablePushNotifications
+  ? undefined
+  : Object.keys(pkg.dependencies).filter((name) => name !== PUSH_PLUGIN);
+
 const config: CapacitorConfig = {
   appId: appConfig.appId,
+  ...(includePlugins ? { includePlugins } : {}),
   appName: appConfig.appName,
   webDir: 'www',
 

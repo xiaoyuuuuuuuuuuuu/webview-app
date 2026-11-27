@@ -1049,6 +1049,12 @@ server/send-push.php.example   用 FCM HTTP v1 发送
 `configure.mjs` 会把 iOS 那两处(entitlement 和 Xcode target 引用)也清掉,
 所以不会因为少凭据文件而构建失败。
 
+而且**推送插件本身也不会编进 app**,两个平台都是。Capacitor 默认会把
+`package.json` 里所有插件都编进去,不管开关怎么写 —— 实测关着推送的 APK 里照样
+带着 `com.google.android.c2dm.permission.RECEIVE` 和 firebase-messaging 的类。
+现在 `capacitor.config.ts` 在推送关着时用 `includePlugins` 把它排除掉,
+`verify` 的「推送插件跟着开关走」盯着结果。打开推送时什么都不用改,插件会自动回来。
+
 ---
 
 ## 八、安全(这块跟普通网站不一样,值得读)
